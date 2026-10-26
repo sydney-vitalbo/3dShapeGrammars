@@ -1,0 +1,8 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "cmake.debugConfig": {
+    "cwd": "${workspaceFolder}"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}

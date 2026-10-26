@@ -1,0 +1,17 @@
+# Generated builds and downloaded dependencies
+/build/
+/out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Per-developer IDE configuration; shared VS Code settings remain tracked.
+/.vs/
+CMakeUserPresets.json
+*.vcxproj.user
+*.suo
+
+# Operating system files
+.DS_Store
+Thumbs.db
