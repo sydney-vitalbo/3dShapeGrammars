@@ -121,13 +121,12 @@ M33 M33::operator*(M33 m) {
     return result;
 }
 
-
-ostream& operator<<(ostream& os, M33 m) {
+std::ostream& operator<<(std::ostream& os, M33 m) {
     os << m[0] << m[1] << m[2];
     return os;
 }
 
-istream& operator>>(istream& is, M33& m) {
+std::istream& operator>>(std::istream& is, M33& m) {
     is >> m[0] >> m[1] >> m[2];
     return is;
 }

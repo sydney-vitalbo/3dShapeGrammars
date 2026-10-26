@@ -3,8 +3,6 @@
 #include <ostream>
 #include <istream>
 
-using namespace std;
-
 #include "V3.h"
 
 class M33 {
@@ -25,7 +23,7 @@ public:
 	M33 Invert();
 	V3 operator*(V3 v);
 	M33 operator*(M33 m);
-	void M33::SetRotY(float alpha);
-	friend ostream& operator<<(ostream& os, M33 m);
-	friend istream& operator>>(istream& is, M33 m);
+	void SetRotY(float alpha);
+	friend std::ostream& operator<<(std::ostream& os, M33 m);
+	friend std::istream& operator>>(std::istream& is, M33 m);
 };

@@ -4,13 +4,11 @@
 #include <vector>
 #include <ostream>
 
-using namespace std;
+//using namespace std;
 
 #include "ShapeNode.h"
 #include "Rules.h"
 #include "V3.h"
-#include "TM.h"
-#include "framebuffer.h"
 
 class GrammarEngine {
 public:

@@ -9,6 +9,7 @@
 #include "scene/Camera.h"
 #include "scene/Mesh.h"
 #include "scene/Primitives.h"
+#include "grammar/GrammarEngine.h" //mridu's engine + ShapeNode
 
 namespace sg {
 
@@ -38,12 +39,10 @@ private:
     void drawGroundGrid();
 
     /**
-     * Checkpoint 1 placeholder scene: one box and one cylinder
-     *
-     * LATER: switch to traversing a ShapeNode tree (composing parent/child transforms and drawing terminal
-     * primitives)
+     * Draw the terminal shapes produced by the GrammarEngine
      */
-    void drawDemoScene();
+    void drawGrammarScene();
+    //void drawDemoScene();
 
     Camera camera;
     bool glInitialized = false;
@@ -54,6 +53,9 @@ private:
     Mesh cylinderMesh;
 
     primitives::GroundGrid grid;
+
+    //generate a building once and render its terminals every frame (then regenerate when parameters change)
+    GrammarEngine engine;
 
     //mouse vars for rotate/zoom controls
     int lastMouseX = 0;

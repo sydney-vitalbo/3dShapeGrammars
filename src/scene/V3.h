@@ -7,8 +7,6 @@
 
 # define M_PI   (3.14159265358979323846)  /* pi */
 
-using namespace std;
-
 class M33;
 
 class V3 {
@@ -19,8 +17,8 @@ public:
 	void Rewrite(float x, float y, float z);
 	void Rewrite(V3 new_v);
 	float& operator[](int i);
-	friend istream& operator>>(istream& is, V3& v);
-	friend ostream& operator<<(ostream& os, V3 v);
+	friend std::istream& operator>>(std::istream& is, V3& v);
+	friend std::ostream& operator<<(std::ostream& os, V3 v);
 	V3 operator+(V3 v1);
 	V3 operator-(V3 v1);
 	V3 operator*(float c);

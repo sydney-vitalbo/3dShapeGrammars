@@ -7,6 +7,7 @@ using namespace std;
 #include <ostream>
 #include <istream>
 #include <stdio.h>
+#include <cmath>
 
 V3::V3(float x, float y, float z) {
 	xyz[0] = x;

@@ -61,9 +61,18 @@ add_executable(shape_grammars
     src/scene/Camera.cpp
     src/scene/Mesh.cpp
     src/scene/Primitives.cpp
+
+    src/scene/V3.cpp
+    src/scene/M33.cpp
+    src/grammar/GrammarEngine.cpp
+    src/grammar/Rules.cpp
 )
 
-target_include_directories(shape_grammars PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(shape_grammars PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/grammar
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scene
+)
 target_link_libraries(shape_grammars PRIVATE
     fltk::fltk
     fltk::gl

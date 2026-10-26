@@ -30,6 +30,9 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     //build the two primitives ONCE here, and later rescale/position them each frame
     boxMesh = primitives::makeUnitBox();
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
+
+    //ask mridu's engine to expand a facade into terminal shapes. engine.terminals now holds the pieces we render each frame!
+    engine.GenerateFacade();
 }
 
 void SceneView::initGLState() { //enabling opengl features
@@ -83,7 +86,7 @@ void SceneView::draw() {
 
     //draw the scene contents
     drawGroundGrid();
-    drawDemoScene();
+    drawGrammarScene();
 }
 
 void SceneView::drawGroundGrid() {
@@ -106,34 +109,47 @@ void SceneView::drawGroundGrid() {
     glEnable(GL_LIGHTING);
 }
 
-void SceneView::drawDemoScene() {
-    //meshes are unit-sized and centered at the origin
-    //to place a copy somewhere, temporarily change openGL's "modelview" transform, draw, then undo the change:
-    //   glPushMatrix() : save the current transform
-    //   glTranslatef() : move the origin for whatever we draw next
-    //   glScalef()     : resize whatever we draw next
-    //   <draw>
-    //   glPopMatrix()  : restore the saved transform
-    //https://www.scribd.com/document/135598965/NeHe-OpenGL-Tutorial#page=9
+void SceneView::drawGrammarScene() {
+    //each terminal has a world-space position, a size, and a material. draw the unit box moved+scaled to match, tinted by material
+    for (ShapeNode& t : engine.terminals) {
+        float r, g, b;
 
-    // openGL applies these to the object in reverse! so scale first then translate
-
-    //cube
-    glPushMatrix();
-    glTranslatef(-2.0f, 1.5f, 0.0f); // put it left of center; y=1.5 so its base sits on the ground (y=0)
-    glScalef(2.0f, 3.0f, 2.0f);      // 2 wide, 3 tall, 2 deep (unit box was 1x1x1)
-    glColor3f(0.80f, 0.55f, 0.35f);  // warm orange tint (this is the material color)
-    boxMesh.draw();
-    glPopMatrix();
-
-    //cylinder
-    glPushMatrix();
-    glTranslatef(2.0f, 1.5f, 0.0f);  // right of center, base on the ground
-    glScalef(1.6f, 3.0f, 1.6f);
-    glColor3f(0.45f, 0.65f, 0.85f);  // cool blue tint
-    cylinderMesh.draw();
-    glPopMatrix();
+        glPushMatrix();
+        glTranslatef(t.position[0], t.position[1], t.position[2]); //world position
+        glScalef(t.size[0], t.size[1], t.size[2]);                 //box dimensions
+        boxMesh.draw(); // all current terminals are box shapes
+        glPopMatrix();
+    }
 }
+
+// void SceneView::drawDemoScene() {
+//     //meshes are unit-sized and centered at the origin
+//     //to place a copy somewhere, temporarily change openGL's "modelview" transform, draw, then undo the change:
+//     //   glPushMatrix() : save the current transform
+//     //   glTranslatef() : move the origin for whatever we draw next
+//     //   glScalef()     : resize whatever we draw next
+//     //   <draw>
+//     //   glPopMatrix()  : restore the saved transform
+//     //https://www.scribd.com/document/135598965/NeHe-OpenGL-Tutorial#page=9
+
+//     // openGL applies these to the object in reverse! so scale first then translate
+
+//     //cube
+//     glPushMatrix();
+//     glTranslatef(-2.0f, 1.5f, 0.0f); // put it left of center; y=1.5 so its base sits on the ground (y=0)
+//     glScalef(2.0f, 3.0f, 2.0f);      // 2 wide, 3 tall, 2 deep (unit box was 1x1x1)
+//     glColor3f(0.80f, 0.55f, 0.35f);  // warm orange tint (this is the material color)
+//     boxMesh.draw();
+//     glPopMatrix();
+
+//     //cylinder
+//     glPushMatrix();
+//     glTranslatef(2.0f, 1.5f, 0.0f);  // right of center, base on the ground
+//     glScalef(1.6f, 3.0f, 1.6f);
+//     glColor3f(0.45f, 0.65f, 0.85f);  // cool blue tint
+//     cylinderMesh.draw();
+//     glPopMatrix();
+// }
 
 // fltk's input callback
 // return 1 if we consumed the input
