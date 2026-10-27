@@ -1,6 +1,6 @@
 #include "GrammarEngine.h"
 
-#include <ostream>
+#include <iostream>
 
 GrammarEngine::GrammarEngine() {
     rules = Rules();
@@ -14,34 +14,87 @@ GrammarEngine::~GrammarEngine() {
 // Expand the facade rule, build tree,
 // append terminal shape nodes to terminals vector
 void GrammarEngine::GenerateFacade() {
-    ShapeNode root;
-    root.symbol = Symbol::Facade;
-    root.position = V3(0, 0, -3.0f);
-    root.size = V3(0.5f, 0.5f, 0.2f);
-    root.isTerminal = false;
-    root.id = 0;
+    this->root.symbol = Symbol::Facade;
+    this->root.position = V3(0, 0, -3.0f);
+    this->root.size = V3(4.0f, 4.0f, 0.2f);
+    this->root.isTerminal = false;
+    this->root.id = 0;
 
-    // Expand the facade rule
-    Expand(root);
+    // Expand the facade rule, generate its grammar tree
+    GenerateTree(&this->root);
+    terminals.clear();
+    CollectTerminals(&this->root, V3(0, 0, 0));
 }
 
-// recursive expansion of any rule, used by presets above
-void GrammarEngine::Expand(ShapeNode node) {
-    if (node.isTerminal) {
-        terminals.push_back(node);
+// generate grammar tree for a given preset
+void GrammarEngine::GenerateTree(ShapeNode* node) {
+    if (node == nullptr) {
+        std::cerr << "Error: GenerateTree called with null node." << std::endl;
+        return;
+    }
+    if (node->isTerminal) {
         return;
     }
 
-    std::vector<ShapeNode> children = rules.Expand(node);
+    // generate grammar subtree for this node
+    rules.Expand(node);
 
-    for (ShapeNode child : children) {
-        // Position the child globally and continue expanding recursively
-        child.position = V3(node.position[0] + child.position[0] * node.size[0],
-                            node.position[1] + child.position[1] * node.size[1],
-                            node.position[2] + child.position[2] * node.size[2]);
-        child.size = V3(node.size[0] * child.size[0],
-                        node.size[1] * child.size[1],
-                        node.size[2] * child.size[2]);
-        Expand(child);
+    // recursively generate grammar tree for each child
+    for (ShapeNode& child : node->children) {
+        GenerateTree(&child);
+    }
+}
+
+// collect the terminal nodes with their world pose
+void GrammarEngine::CollectTerminals(ShapeNode* node, V3 parentPose) {
+    if (node == nullptr) {
+        std::cerr << "Error: CollectTerminals called with null node." << std::endl;
+        return;
+    }
+
+    V3 newParentPose = parentPose + node->position;
+
+    // If the node is terminal, add it to the terminals vector
+    if (node->isTerminal) {
+        // copy and transform to world pose first
+        ShapeNode terminal = *node;
+        terminal.position = newParentPose;
+        terminals.push_back(terminal);
+        return;
+    }
+
+    // If the node is not terminal, recursively collect terminals from its children
+    for (ShapeNode& child : node->children) {
+        CollectTerminals(&child, newParentPose);
+    }
+}
+
+// print the grammar tree for debugging
+void GrammarEngine::PrintTree(const ShapeNode* node, int depth) {
+    if (node == nullptr) {
+        std::cerr << "Error: PrintTree called with null node." << std::endl;
+        return;
+    }
+
+    for (int i = 0; i < depth; i++) {
+        std::cout << "  ";
+    }
+    std::cout << int(node->symbol) << " (ID: " << node->id << ")" << " (Position: " << node->position << ")" << " (Size: " << node->size << ")" << std::endl;
+
+    for (const ShapeNode& child : node->children) {
+        PrintTree(&child, depth + 1);
+    }
+}
+
+// print the collected terminal nodes for debugging
+void GrammarEngine::PrintTerminals() {
+    std::cout << "Collected Terminal Nodes:" << std::endl;
+    for (const ShapeNode& terminal : terminals) {
+        std::cout << "ID: " << terminal.id
+                  << ", Symbol: " << int(terminal.symbol)
+                  << ", Material: " << int(terminal.material)
+                  << ", Position: " << terminal.position
+                  << ", Size: " << terminal.size
+                  << std::endl;
     }
 }

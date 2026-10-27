@@ -6,7 +6,7 @@
 class Rules {
 public:
     Rules() {};
-    std::vector<ShapeNode> Expand(const ShapeNode node);
-    std::vector<ShapeNode> Window(const ShapeNode parent);
-    std::vector<ShapeNode> Facade(const ShapeNode parent);
+    void Expand(ShapeNode* node);
+    void Window(ShapeNode* parent);
+    void Facade(ShapeNode* parent);
 };
