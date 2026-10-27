@@ -1,0 +1,65 @@
+= 3D Shape Grammars
+#align(right)[_Mridu Prashanth, Borna Tavasoli, Sydney Vitalbo_]
+
+== Goal
+Implement an interactive application for generating and editing buildings using a shared grammar engine and manually authored parametric grammars. Inspired by #link("https://www.cg.tuwien.ac.at/research/publications/2003/Wonka-2003-Ins/")[Instant Architecture (Wonka et al., 2003)], the project will demonstrate hierarchical subdivision, repeated architectural elements, and geometry regeneration after parameter changes.
+
+The application will support 2-3 building families (for example, office building and church building). Each family will have its own rule set while sharing geometric operations and reusable components. All output will be deterministic.
+
+== Features
+- *Building presets:* Add Office and Add Church buttons create buildings from their corresponding rule sets. These buttons instantiate procedural presets.
+- *Geometric primitives:* Box and cylinder, possibly a fixed triangular-prism roof component. Reusable higher rules for windows, doors, frames, and columns are built from these.
+- *Grammar operations:* Composition, local transformations, subdivision, repetition, and explicitly selected alternative productions (selected through the GUI).
+- *Selection and placement:* Click a building to select and highlight it. Drag the selected building along the ground plane, with placement snapped to a grid. Separate mouse controls provide camera orbit and zoom.
+- *Parameter editing:* Use FLTK numeric fields, sliders, and buttons to edit the selected building's dimensions, floor count, window spacing, or type-specific parameters. Regenerate the affected geometry after applying an edit.
+- *Constrained joining:* Join compatible rectangular office sections on a shared grid. Permit different integer floor counts, omit shared walls, and generate windows and roofs only on exposed surfaces.
+- *Grammar inspection:* Display a derivation tree. Selecting a tree node highlights its corresponding component.
+
+== Team
+- *GrammarEngine person:* Implement `GrammarEngine`, shape-node data structures, subdivision, repetition, transformations, parameter validation, and regeneration. Work with Ruleset person on adjacency and exposed-face computation.
+- *Ruleset person:* Author office and church grammars, shared component rules, and parameter presets. Implement the FLTK parameter panel and derivation listing, and prepare evaluation configurations.
+- *Rendering person:* Implement OpenGL rendering, primitive meshes, camera controls, ray picking, highlighting, and ground-plane dragging. Connect rendered components to building and node identifiers.
+
+== Implementation
+Use C++ with OpenGL for rendering and FLTK for the GUI. An `Fl_Gl_Window` subclass will implement rendering in `draw()` and mouse interaction in `handle()`, following the #link("https://www.fltk.org/doc-1.4/opengl.html")[FLTK OpenGL integration model]. FLTK callbacks will update application state and request a redraw.
+
+Rules will be stored as C++ structures and functions. Each shape node will store its label, local transform, dimensions, parameters, children, and owning building and section identifiers. Each building instance will store its type, parameter values, placement, and derivation root. Rendering will compose parent and child transforms and draw terminal geometry.
+
+*The main functions for the GrammarEngine person will be:*
+- subdivide(node, axis, sizes): Evaluates axis-splitting rules by dividing a 3D shape into child regions using fixed or relative sizes.
+- repeat(node, axis, count, spacing) : Evaluates tiling rules to distribute repeated sub-components across available space.
+- transform(node, matrix), emitPrimitive(node, type) : Handles local scope transformations (position, orientation, scale) and creates active terminal shapes (`box` or `cylinder` primitives).
+- expandToDepth(root, depth) : Provides a tree-traversal helper on the derivation tree so the UI's visualizer can query intermediate expansion steps
+
+*The main functions for the Ruleset person will be:*
+- generate(type, parameters): Evaluates a specific building grammar (e.g., `OfficeGrammar`, `ChurchGrammar`). Takes high-level dimensions and component counts, invokes the GrammarEngine's `subdivide`/`repeat` functions, and outputs a complete `DerivationTree`
+
+*The main functions for the Rendering person will be:*
+- updateParameters(id, changes): Captures slider/input changes from the UI, updates parameter values, and triggers the Ruleset person's `generate(...)` to rebuild the scene
+- pickComponent(mouseX, mouseY): Performs raycasting from the camera through the cursor to select and visually highlight a 3D component (e.g. a building) in the viewport
+- moveSelected(mouseX, mouseY): intersect the cursor ray with the ground plane, preserve the initial grab offset, and snap the resulting placement to the grid.
+- joinSections(a, b) and computeExposedFaces(group): verify compatible module dimensions and adjacency, register the connection, and determine which surfaces require geometry.
+
+== Timeline
+=== Checkpoint 1 (Ordered within the checkpoint)
+- Establish the C++/OpenGL/FLTK application, render box and cylinder primitives. Implement zooming, rotating camera (Rendering person)
+- Implement transforms, subdivision, and repetition (GrammarEngine person)
+- Define a basic office building ruleset and display its subdivision regions (Ruleset person)
+
+=== Checkpoint 2 (Unordered within the checkpoint)
+- Implement preset buttons, parameter fields, regeneration (Ruleset Person).
+- Implement selection highlighting and grid-snapped ground-plane dragging (Rendering person).
+- Implement a minimal two-section office join with shared-wall removal (GrammarEngine person).
+
+=== Checkpoint 3 (Unordered within the checkpoint)
+- Complete connected-office editing and stepped or L-shaped arrangements (GrammarEngine person).
+- Verify exposed walls, roofs, entrances, and floor alignment after edits (Ruleset person).
+- Add a derivation tree display with component highlighting (Rendering person).
+
+=== Before Final Presentation
+- Test configurations and fix integration/geometry errors.
+- Measure regeneration time and geometry size for increasing model complexity.
+- Rehearse the presentation
+
+== References
+1. Wonka, P., Wimmer, M., Sillion, F., & Ribarsky, W. (2003). Instant architecture. _ACM Transactions on Graphics (TOG), 22_(3), 669–677. https://doi.org/10.1145/882262.882324
