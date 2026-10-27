@@ -32,6 +32,17 @@ with an archive SHA-256 check.
    .\build\windows\bin\Debug\shape_grammars.exe
    ```
 
+Or run all three steps with one command from the repository root:
+
+```powershell
+.\run
+```
+
+`run.cmd` configures the Windows preset, builds Debug, then launches the app.
+It stops if configuring or building fails. CMake must be available on `PATH`;
+no Make installation or PowerShell execution-policy changes are required.
+After a deep clean, the same command downloads and builds FLTK again.
+
 For Release, use the same configured build directory:
 
 ```powershell

@@ -15,10 +15,14 @@ public:
 
     Rules rules;
     std::vector<ShapeNode> terminals;
+    ShapeNode root;
 
     GrammarEngine();
     ~GrammarEngine();
 
     void GenerateFacade();
-    void Expand(ShapeNode node);
+    void GenerateTree(ShapeNode* node);
+    void PrintTree(const ShapeNode* node, int depth = 0);
+    void CollectTerminals(ShapeNode* node, V3 parentPose);
+    void PrintTerminals();
 };
