@@ -21,12 +21,17 @@ void GrammarEngine::GenerateFacade() {
     this->root.isTerminal = false;
     this->root.id = 0;
 
+    // override with apartment node for testing
+    building_rules::Parameters params;
+    // testing subdivison (splitting height into floors) and repetition (bays within floor)
+    params.floors = 3;
+    params.bays = 3;
+    this->root = building_rules::buildingRoot(params, true);
+
     // Rules determine all bays, windows, and terminal geometry.
     GenerateTree(&this->root);
-    PrintTree(&this->root);
     terminals.clear();
     CollectTerminals(&this->root, V3(0, 0, 0));
-    PrintTerminals();
 }
 
 // generate grammar tree for a given preset
@@ -49,26 +54,28 @@ void GrammarEngine::GenerateTree(ShapeNode* node) {
 }
 
 // collect the terminal nodes with their world pose
-void GrammarEngine::CollectTerminals(ShapeNode* node, V3 parentPose) {
+void GrammarEngine::CollectTerminals(ShapeNode* node, V3 parentPose, M33 parentRotation) {
     if (node == nullptr) {
         std::cerr << "Error: CollectTerminals called with null node." << std::endl;
         return;
     }
 
-    V3 newParentPose = parentPose + node->position;
+    V3 newParentPose = parentPose + parentRotation * node->position;
+    M33 worldRotation = parentRotation * node->rotation;
 
     // If the node is terminal, add it to the terminals vector
     if (node->isTerminal) {
         // copy and transform to world pose first
         ShapeNode terminal = *node;
         terminal.position = newParentPose;
+        terminal.rotation = worldRotation;
         terminals.push_back(terminal);
         return;
     }
 
     // If the node is not terminal, recursively collect terminals from its children
     for (ShapeNode& child : node->children) {
-        CollectTerminals(&child, newParentPose);
+        CollectTerminals(&child, newParentPose, worldRotation);
     }
 }
 

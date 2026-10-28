@@ -116,6 +116,14 @@ void SceneView::drawGrammarScene() {
 
         glPushMatrix();
         glTranslatef(t.position[0], t.position[1], t.position[2]); //world position
+        // M33 stores rows; OpenGL consumes a column-major 4x4 matrix.
+        const float rotation[16] = {
+            t.rotation[0][0], t.rotation[1][0], t.rotation[2][0], 0,
+            t.rotation[0][1], t.rotation[1][1], t.rotation[2][1], 0,
+            t.rotation[0][2], t.rotation[1][2], t.rotation[2][2], 0,
+            0, 0, 0, 1
+        };
+        glMultMatrixf(rotation);
         glScalef(t.size[0], t.size[1], t.size[2]);                 //box dimensions
         boxMesh.draw(); // all current terminals are box shapes
         glPopMatrix();

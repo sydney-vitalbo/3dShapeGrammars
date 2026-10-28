@@ -24,6 +24,6 @@ public:
     void GenerateFacade();
     void GenerateTree(ShapeNode* node);
     void PrintTree(const ShapeNode* node, int depth = 0);
-    void CollectTerminals(ShapeNode* node, V3 parentPose);
+    void CollectTerminals(ShapeNode* node, V3 parentPose, M33 parentRotation = M33(1.0f));
     void PrintTerminals();
 };

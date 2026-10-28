@@ -1,17 +1,25 @@
 #pragma once
 
 #include "grammar/ShapeNode.h"
+#include "grammar/Operations.h"
 
 namespace building_rules {
 
 struct Parameters {
-    int floors = 3;       // Includes the ground floor.
-    int bays = 3;         // Repeated facade sections per upper floor.
-    float width = 6.0f;
+    int floors = 1;       // Includes the ground floor.
+    int bays = 2;         // Repeated facade sections per upper floor.
+    float width = 4.0f;
     float floorHeight = 1.5f;
-    float depth = 3.0f;
+    float depth = 2.0f;
     bool balconies = true; // Explicit apartment alternative, never random.
 };
+
+constexpr float bandHeight = 0.12f;
+constexpr float roofHeight = 0.24f;
+
+// Helpers
+void validate(const Parameters& p);
+ShapeNode buildingRoot(const Parameters& p, bool apartment);
 
 // Create an unexpanded root only. GrammarEngine::GenerateTree expands it.
 // All dimensions use absolute units; tree positions are relative to the parent.

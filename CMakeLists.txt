@@ -67,6 +67,7 @@ add_executable(shape_grammars
     src/grammar/GrammarEngine.cpp
     src/grammar/Rules.cpp
     src/grammar/BuildingRules.cpp
+    src/grammar/Operations.cpp
 )
 
 target_include_directories(shape_grammars PRIVATE
