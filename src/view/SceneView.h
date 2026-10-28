@@ -10,6 +10,9 @@
 #include "scene/Mesh.h"
 #include "scene/Primitives.h"
 #include "grammar/GrammarEngine.h" //mridu's engine + ShapeNode
+#include "grammar/ShapeNode.h" //mridu's ShapeNode
+#include "grammar/Rules.h" //mridu's rules
+#include "grammar/BuildingRules.h" //borna's building rules
 
 namespace sg {
 

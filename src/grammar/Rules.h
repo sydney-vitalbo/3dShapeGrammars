@@ -2,6 +2,7 @@
 #pragma once
 
 #include "ShapeNode.h"
+#include "BuildingRules.h"
 
 class Rules {
 public:

@@ -14,16 +14,19 @@ GrammarEngine::~GrammarEngine() {
 // Expand the facade rule, build tree,
 // append terminal shape nodes to terminals vector
 void GrammarEngine::GenerateFacade() {
+    this->root = ShapeNode{};
     this->root.symbol = Symbol::Facade;
     this->root.position = V3(0, 0, -3.0f);
     this->root.size = V3(4.0f, 4.0f, 0.2f);
     this->root.isTerminal = false;
     this->root.id = 0;
 
-    // Expand the facade rule, generate its grammar tree
+    // Rules determine all bays, windows, and terminal geometry.
     GenerateTree(&this->root);
+    PrintTree(&this->root);
     terminals.clear();
     CollectTerminals(&this->root, V3(0, 0, 0));
+    PrintTerminals();
 }
 
 // generate grammar tree for a given preset

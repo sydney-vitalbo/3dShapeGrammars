@@ -1,5 +1,6 @@
 #include "Rules.h"
 
+// mridu's hardcoded testing rules for facade and window expansion
 void Rules::Window(ShapeNode* parent) {
 
     // Create four terminal Glass children
@@ -50,13 +51,41 @@ void Rules::Facade(ShapeNode* parent) {
 }
 
 void Rules::Expand(ShapeNode* node) {
+    if (!node || node->isTerminal)
+        return;
+
     switch (node->symbol) {
+        case Symbol::Office:
+        case Symbol::Apartment:
+            building_rules::expandBuilding(node);
+            break;
+        case Symbol::Floor:
+            building_rules::expandFloor(node);
+            break;
+        case Symbol::WallRegion:
+            building_rules::expandWallRegion(node);
+            break;
+        case Symbol::BayGroup:
+            building_rules::expandBayGroup(node);
+            break;
+        case Symbol::Bay:
+            building_rules::expandBay(node);
+            break;
+        case Symbol::Entrance:
+            building_rules::expandEntrance(node);
+            break;
+        case Symbol::Balcony:
+            building_rules::expandBalcony(node);
+            break;
+        case Symbol::Roof:
+            building_rules::expandRoof(node);
+            break;
         case Symbol::Window:
-            Window(node); // Four Glass children
+            building_rules::expandWindow(node);
             break;
 
         case Symbol::Facade:
-            Facade(node); // Four Wood children and one Window child
+            building_rules::expandFacade(node);
             break;
 
         default:

@@ -31,7 +31,7 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     boxMesh = primitives::makeUnitBox();
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
 
-    //ask mridu's engine to expand a facade into terminal shapes. engine.terminals now holds the pieces we render each frame!
+    //ask engine to expand a facade into terminal shapes. engine.terminals now holds the pieces we render each frame!
     engine.GenerateFacade();
 }
 

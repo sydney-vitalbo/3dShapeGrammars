@@ -5,7 +5,6 @@
 
 // Interface required by BuildingRules.cpp. Mridu's engine supplies the four
 // operation implementations. This header contains no expansion or rendering.
-// Use the global grammar/ShapeNode, not the separate scene/ShapeNode scaffold.
 namespace grammar_ops {
 
 enum class Axis { X = 0, Y = 1, Z = 2 };

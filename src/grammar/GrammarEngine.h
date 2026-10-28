@@ -8,6 +8,7 @@
 
 #include "ShapeNode.h"
 #include "Rules.h"
+#include "BuildingRules.h"
 #include "V3.h"
 
 class GrammarEngine {

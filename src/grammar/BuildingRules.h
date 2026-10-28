@@ -13,10 +13,22 @@ struct Parameters {
     bool balconies = true; // Explicit apartment alternative, never random.
 };
 
-// Building recipes only: return local ShapeNode trees, not rendered geometry.
-// Root dimensions/position use world units; descendants use parent fractions.
-// The engine implements Operations.h and resolves these trees to world-space leaves.
+// Create an unexpanded root only. GrammarEngine::GenerateTree expands it.
+// All dimensions use absolute units; tree positions are relative to the parent.
 ShapeNode makeOffice(const Parameters& parameters);
 ShapeNode makeApartment(const Parameters& parameters);
+
+// Each production replaces only this node's immediate children. No production
+// calls another production; recursion belongs to GrammarEngine::GenerateTree.
+void expandBuilding(ShapeNode* node);
+void expandFloor(ShapeNode* node);
+void expandWallRegion(ShapeNode* node);
+void expandFacade(ShapeNode* node);
+void expandBayGroup(ShapeNode* node);
+void expandBay(ShapeNode* node);
+void expandEntrance(ShapeNode* node);
+void expandWindow(ShapeNode* node);
+void expandBalcony(ShapeNode* node);
+void expandRoof(ShapeNode* node);
 
 } // namespace building_rules

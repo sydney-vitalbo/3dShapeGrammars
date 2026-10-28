@@ -1,5 +1,4 @@
 #include "grammar/BuildingRules.h"
-#include "grammar/Operations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,165 +7,214 @@
 
 namespace building_rules {
 namespace {
-using namespace grammar_ops;
 constexpr float bandHeight = 0.12f;
 constexpr float roofHeight = 0.24f;
 
-// The names in these production comments describe the authored rules; they do
-// not add symbols to the team's existing Symbol enum. All leaves remain boxes.
-// Rules depend on the Operations.h interface; implementations belong to the engine.
-
-// Window -> frame + glass + center mullion + sill.
-// front = +1 for the street facade, -1 for the rear facade.
-ShapeNode window(bool apartment, float front) {
-    const Material frame = apartment ? Material::Stone : Material::Wood;
-    std::vector<ShapeNode> parts{
-        terminal(frame),
-        terminal(Material::Glass, V3(0.88f, 0.87f, 0.35f), V3(0, 0, front * 0.55f)),
-        terminal(frame, V3(0.035f, 0.87f, 0.36f), V3(0, 0, front * 0.56f)),
-        terminal(frame, V3(1.06f, 0.055f, 1.5f), V3(0, -0.48f, front * 0.1f))
-    };
-    ShapeNode scope;
-    scope.symbol = Symbol::Window;
-    return compose(scope, std::move(parts));
+// Create individual nodes only: absolute sizes and parent-local offsets.
+ShapeNode childOf(const ShapeNode& parent, Symbol symbol, V3 size,
+                  V3 position = V3(0, 0, 0)) {
+    ShapeNode child;
+    child.symbol = symbol;
+    child.size = size;
+    child.position = position;
+    child.building = parent.building;
+    return child;
 }
 
-// Balcony -> floor slab + low front wall + left wall + right wall.
-// The open back meets the building. No rail meshes, supports, or interiors.
-ShapeNode balcony(float bayWidth, float wallHeight, float depth) {
-    constexpr float projection = 0.65f, slab = 0.08f, rail = 0.055f, guard = 0.43f;
-    const float width = bayWidth * 0.82f;
-    const float bottom = -0.5f + slab / (2 * wallHeight);
-    const float guardY = -0.5f + (slab + guard / 2) / wallHeight;
-    std::vector<ShapeNode> parts{
-        terminal(Material::Stone, V3(1, slab / wallHeight, 1), V3(0, bottom, 0)),
-        terminal(Material::Wood, V3(1, guard / wallHeight, rail / projection),
-                 V3(0, guardY, 0.5f - rail / (2 * projection))),
-        terminal(Material::Wood, V3(rail / width, guard / wallHeight, 1),
-                 V3(-0.5f + rail / (2 * width), guardY, 0)),
-        terminal(Material::Wood, V3(rail / width, guard / wallHeight, 1),
-                 V3(0.5f - rail / (2 * width), guardY, 0))
-    };
-    ShapeNode scope;
-    scope.size = V3(0.82f, 1, projection / depth);
-    scope.position = V3(0, 0, 0.5f + projection / (2 * depth));
-    return compose(scope, std::move(parts));
+ShapeNode terminal(const ShapeNode& parent, Material material, V3 size,
+                   V3 position = V3(0, 0, 0)) {
+    ShapeNode child = childOf(parent, Symbol::Slab, size, position);
+    child.isTerminal = true;
+    child.material = material;
+    return child;
 }
 
-// OfficeBay -> wide framed glass panel.
-// ApartmentBay -> smaller framed window
-//              | balcony door + Balcony (only when the user enables balconies).
-ShapeNode bay(ShapeNode scope, const Parameters& p, float bayWidth,
-              bool apartment, bool withBalcony, float front) {
-    const float wallHeight = p.floorHeight - bandHeight;
-    ShapeNode pane = window(apartment, front);
-    pane.size = V3(apartment ? 0.60f : 0.90f, withBalcony ? 0.86f : 0.76f,
-                   0.065f / p.depth);
-    pane.position = V3(0, withBalcony ? -0.01f : 0.02f, front * 0.505f);
-    std::vector<ShapeNode> parts{std::move(pane)};
-    if (withBalcony) parts.push_back(balcony(bayWidth, wallHeight, p.depth));
-    return compose(std::move(scope), std::move(parts));
-}
-
-// Entrance -> framed glass door + shallow canopy.
-// Office entrances are wider; both doors reach the ground instead of floating.
-ShapeNode entrance(ShapeNode scope, const Parameters& p, bool apartment) {
-    const float wallHeight = p.floorHeight - bandHeight;
-    ShapeNode door = window(apartment, 1);
-    door.size = V3(0.88f, 0.91f, 0.08f / p.depth);
-    door.position = V3(0, -0.045f, 0.507f);
-    const float canopyDepth = apartment ? 0.38f : 0.55f;
-    ShapeNode canopy = terminal(apartment ? Material::Stone : Material::Wood,
-        V3(1.12f, 0.07f / wallHeight, canopyDepth / p.depth),
-        V3(0, 0.45f, 0.5f + canopyDepth / (2 * p.depth)));
-    return compose(std::move(scope), {std::move(door), std::move(canopy)});
-}
-
-// GroundFacade -> repeated left windows + Entrance + repeated right windows.
-// UpperOfficeFacade -> repeat_X(OfficeBay).
-// UpperApartmentFacade -> repeat_X(ApartmentBay).
-ShapeNode facade(const Parameters& p, bool apartment, bool ground, float front) {
-    std::vector<ShapeNode> bays;
-    if (ground && front > 0) {
-        const float doorWidth = apartment ? 1.0f : 1.5f;
-        bays = subdivide(Axis::X, p.width,
-                        {Split::relative(1), Split::fixed(doorWidth), Split::relative(1)});
-        const int count = std::max(1, p.bays / 2);
-        for (int side : {0, 2}) {
-            auto windows = repeat(Axis::X, count);
-            for (ShapeNode& item : windows)
-                item = bay(std::move(item), p, (p.width - doorWidth) / (2 * count),
-                           apartment, false, front);
-            bays[side] = compose(std::move(bays[side]), std::move(windows));
-        }
-        bays[1] = entrance(std::move(bays[1]), p, apartment);
-    } else {
-        bays = repeat(Axis::X, p.bays);
-        for (ShapeNode& item : bays)
-            item = bay(std::move(item), p, p.width / p.bays, apartment,
-                       apartment && !ground && front > 0 && p.balconies, front);
-    }
-    return compose(ShapeNode{}, std::move(bays));
-}
-
-// Floor -> subdivide_Y(WallRegion: remaining height, FloorBand: fixed 0.12).
-// WallRegion -> solid wall + front facade + rear facade.
-// Side walls stay plain for neighboring buildings; no joining/booleans here.
-ShapeNode floor(ShapeNode scope, const Parameters& p, bool apartment, bool ground) {
-    auto regions = subdivide(Axis::Y, p.floorHeight,
-                             {Split::relative(1), Split::fixed(bandHeight)});
-    regions[0] = compose(std::move(regions[0]), {
-        terminal(Material::Stone), facade(p, apartment, ground, 1),
-        facade(p, apartment, ground, -1)
-    });
-    regions[1].isTerminal = true;
-    regions[1].material = apartment ? Material::Stone : Material::Wood;
-    return compose(std::move(scope), std::move(regions));
-}
-
-// FlatRoof -> inset roof deck + four thin parapet walls.
-// All roof edges stay inside the footprint so neighboring roofs do not overlap.
-ShapeNode roof(ShapeNode scope, const Parameters& p, bool apartment) {
-    constexpr float thickness = 0.10f;
-    const Material edge = apartment ? Material::Wood : Material::Stone;
-    return compose(std::move(scope), {
-        terminal(Material::None, V3(1, 0.25f, 1), V3(0, -0.375f, 0)),
-        terminal(edge, V3(1, 1, thickness / p.depth), V3(0, 0, -0.5f + thickness / (2 * p.depth))),
-        terminal(edge, V3(1, 1, thickness / p.depth), V3(0, 0, 0.5f - thickness / (2 * p.depth))),
-        terminal(edge, V3(thickness / p.width, 1, 1), V3(-0.5f + thickness / (2 * p.width), 0, 0)),
-        terminal(edge, V3(thickness / p.width, 1, 1), V3(0.5f - thickness / (2 * p.width), 0, 0))
-    });
-}
-
-// Office/Apartment -> GroundFloor + repeat_Y(UpperFloor, floors - 1) + FlatRoof.
-// Implemented as equal floor scopes with a special ground-floor production.
-// Changing the count repeats floors; it does not stretch the floor height.
-ShapeNode building(const Parameters& p, bool apartment) {
+void validate(const Parameters& p) {
     if (p.floors < 1 || p.floors > 12 || p.bays < 2 || p.bays > 8 ||
         !std::isfinite(p.width) || p.width < 4 || p.width > 12 ||
         !std::isfinite(p.floorHeight) || p.floorHeight < 1.2f || p.floorHeight > 3 ||
         !std::isfinite(p.depth) || p.depth < 2 || p.depth > 8)
         throw std::invalid_argument("Use 1-12 floors, 2-8 bays, width 4-12, floor height 1.2-3, depth 2-8.");
+}
+
+ShapeNode buildingRoot(const Parameters& p, bool apartment) {
+    validate(p);
     ShapeNode root;
-    root.symbol = Symbol::Facade;
+    root.symbol = apartment ? Symbol::Apartment : Symbol::Office;
     const float height = p.floors * p.floorHeight + roofHeight;
     root.size = V3(p.width, height, p.depth);
     root.position = V3(0, height / 2, 0); // Base remains at ground level.
-    auto sections = subdivide(Axis::Y, height,
-                              {Split::fixed(p.floors * p.floorHeight), Split::fixed(roofHeight)});
-    auto floors = repeat(Axis::Y, p.floors);
-    for (int i = 0; i < p.floors; ++i)
-        floors[i] = floor(std::move(floors[i]), p, apartment, i == 0);
-    sections[0] = compose(std::move(sections[0]), std::move(floors));
-    sections[1] = roof(std::move(sections[1]), p, apartment);
-    return compose(std::move(root), std::move(sections));
+    root.building.floors = p.floors;
+    root.building.bays = p.bays;
+    root.building.apartment = apartment;
+    root.building.balconies = p.balconies;
+    return root;
 }
 } // namespace
 
-// Office -> wide glass bays, broad entrance, dark horizontal floor bands.
-ShapeNode makeOffice(const Parameters& p) { return building(p, false); }
+ShapeNode makeOffice(const Parameters& p) { return buildingRoot(p, false); }
+ShapeNode makeApartment(const Parameters& p) { return buildingRoot(p, true); }
 
-// Apartment -> smaller windows, residential entrance, optional front balconies.
-ShapeNode makeApartment(const Parameters& p) { return building(p, true); }
+// Office/Apartment -> equal Floor regions + FlatRoof. Children are unexpanded.
+void expandBuilding(ShapeNode* node) {
+    const int count = node->building.floors;
+    if (count < 1 || !std::isfinite(node->size[1]) || node->size[1] <= roofHeight)
+        throw std::invalid_argument("Building needs a positive floor count and space below the roof.");
+    node->building.apartment = node->symbol == Symbol::Apartment;
+    const float floorHeight = (node->size[1] - roofHeight) / count;
+    if (floorHeight <= bandHeight)
+        throw std::invalid_argument("Floor height must exceed the floor band height.");
 
+    std::vector<ShapeNode> children;
+    for (int i = 0; i < count; ++i) {
+        ShapeNode floor = childOf(*node, Symbol::Floor,
+            V3(node->size[0], floorHeight, node->size[2]),
+            V3(0, -node->size[1] / 2 + (i + 0.5f) * floorHeight, 0));
+        floor.building.groundFloor = i == 0;
+        children.push_back(std::move(floor));
+    }
+    children.push_back(childOf(*node, Symbol::Roof,
+        V3(node->size[0], roofHeight, node->size[2]),
+        V3(0, (node->size[1] - roofHeight) / 2, 0)));
+    node->children = std::move(children);
+}
+
+// Floor -> WallRegion + terminal FloorBand.
+void expandFloor(ShapeNode* node) {
+    const float wallHeight = node->size[1] - bandHeight;
+    node->children = {
+        childOf(*node, Symbol::WallRegion,
+            V3(node->size[0], wallHeight, node->size[2]), V3(0, -bandHeight / 2, 0)),
+        terminal(*node, node->building.apartment ? Material::Stone : Material::Wood,
+            V3(node->size[0], bandHeight, node->size[2]), V3(0, wallHeight / 2, 0))
+    };
+}
+
+// WallRegion -> solid wall + front Facade + rear Facade.
+void expandWallRegion(ShapeNode* node) {
+    ShapeNode front = childOf(*node, Symbol::Facade, node->size);
+    ShapeNode rear = childOf(*node, Symbol::Facade, node->size);
+    front.building.front = 1;
+    rear.building.front = -1;
+    node->children = {
+        terminal(*node, Material::Stone, node->size), std::move(front), std::move(rear)
+    };
+}
+
+// Ground street facade -> left BayGroup + Entrance + right BayGroup.
+// Other facades -> repeated Bay scopes. No bays are expanded here.
+void expandFacade(ShapeNode* node) {
+    if (node->building.bays < 1)
+        throw std::invalid_argument("Facade needs at least one bay.");
+    std::vector<ShapeNode> children;
+    if (node->building.groundFloor && node->building.front > 0) {
+        const float doorWidth = node->building.apartment ? 1.0f : 1.5f;
+        const float sideWidth = (node->size[0] - doorWidth) / 2;
+        if (sideWidth <= 0)
+            throw std::invalid_argument("Facade must be wider than its entrance.");
+        const float sideX = (doorWidth + sideWidth) / 2;
+        children = {
+            childOf(*node, Symbol::BayGroup, V3(sideWidth, node->size[1], node->size[2]),
+                V3(-sideX, 0, 0)),
+            childOf(*node, Symbol::Entrance, V3(doorWidth, node->size[1], node->size[2])),
+            childOf(*node, Symbol::BayGroup, V3(sideWidth, node->size[1], node->size[2]),
+                V3(sideX, 0, 0))
+        };
+    } else {
+        const int count = node->building.bays;
+        const float width = node->size[0] / count;
+        for (int i = 0; i < count; ++i)
+            children.push_back(childOf(*node, Symbol::Bay,
+                V3(width, node->size[1], node->size[2]),
+                V3(-node->size[0] / 2 + (i + 0.5f) * width, 0, 0)));
+    }
+    node->children = std::move(children);
+}
+
+// Side of a ground-floor entrance -> repeated, unexpanded Bay scopes.
+void expandBayGroup(ShapeNode* node) {
+    const int count = std::max(1, node->building.bays / 2);
+    const float width = node->size[0] / count;
+    std::vector<ShapeNode> children;
+    for (int i = 0; i < count; ++i)
+        children.push_back(childOf(*node, Symbol::Bay,
+            V3(width, node->size[1], node->size[2]),
+            V3(-node->size[0] / 2 + (i + 0.5f) * width, 0, 0)));
+    node->children = std::move(children);
+}
+
+// Bay -> Window, optionally accompanied by an unexpanded Balcony.
+void expandBay(ShapeNode* node) {
+    const bool withBalcony = node->building.apartment && !node->building.groundFloor
+        && node->building.front > 0 && node->building.balconies;
+    ShapeNode pane = childOf(*node, Symbol::Window,
+        V3((node->building.apartment ? 0.60f : 0.90f) * node->size[0],
+           (withBalcony ? 0.86f : 0.76f) * node->size[1], 0.065f),
+        V3(0, (withBalcony ? -0.01f : 0.02f) * node->size[1],
+           node->building.front * 0.505f * node->size[2]));
+    std::vector<ShapeNode> children{std::move(pane)};
+    if (withBalcony) {
+        constexpr float projection = 0.65f;
+        children.push_back(childOf(*node, Symbol::Balcony,
+            V3(node->size[0] * 0.82f, node->size[1], projection),
+            V3(0, 0, (node->size[2] + projection) / 2)));
+    }
+    node->children = std::move(children);
+}
+
+// Entrance -> unexpanded door Window + terminal canopy.
+void expandEntrance(ShapeNode* node) {
+    const float canopyDepth = node->building.apartment ? 0.38f : 0.55f;
+    node->children = {
+        childOf(*node, Symbol::Window,
+            V3(0.88f * node->size[0], 0.91f * node->size[1], 0.08f),
+            V3(0, -0.045f * node->size[1], 0.507f * node->size[2])),
+        terminal(*node, node->building.apartment ? Material::Stone : Material::Wood,
+            V3(1.12f * node->size[0], 0.07f, canopyDepth),
+            V3(0, 0.45f * node->size[1], (node->size[2] + canopyDepth) / 2))
+    };
+}
+
+// Window -> terminal frame + glass + center mullion + sill.
+void expandWindow(ShapeNode* node) {
+    const Material frame = node->building.apartment ? Material::Stone : Material::Wood;
+    const float w = node->size[0], h = node->size[1], d = node->size[2];
+    const float front = node->building.front;
+    node->children = {
+        terminal(*node, frame, node->size),
+        terminal(*node, Material::Glass, V3(0.88f * w, 0.87f * h, 0.35f * d),
+            V3(0, 0, front * 0.55f * d)),
+        terminal(*node, frame, V3(0.035f * w, 0.87f * h, 0.36f * d),
+            V3(0, 0, front * 0.56f * d)),
+        terminal(*node, frame, V3(1.06f * w, 0.055f * h, 1.5f * d),
+            V3(0, -0.48f * h, front * 0.1f * d))
+    };
+}
+
+// Balcony -> terminal floor slab + low front wall + two side walls.
+void expandBalcony(ShapeNode* node) {
+    constexpr float slab = 0.08f, rail = 0.055f, guard = 0.43f;
+    const float w = node->size[0], h = node->size[1], d = node->size[2];
+    const float guardY = -h / 2 + slab + guard / 2;
+    node->children = {
+        terminal(*node, Material::Stone, V3(w, slab, d), V3(0, -h / 2 + slab / 2, 0)),
+        terminal(*node, Material::Wood, V3(w, guard, rail), V3(0, guardY, (d - rail) / 2)),
+        terminal(*node, Material::Wood, V3(rail, guard, d), V3(-(w - rail) / 2, guardY, 0)),
+        terminal(*node, Material::Wood, V3(rail, guard, d), V3((w - rail) / 2, guardY, 0))
+    };
+}
+
+// FlatRoof -> terminal roof deck + four parapet walls.
+void expandRoof(ShapeNode* node) {
+    constexpr float thickness = 0.10f;
+    const float w = node->size[0], h = node->size[1], d = node->size[2];
+    const Material edge = node->building.apartment ? Material::Wood : Material::Stone;
+    node->children = {
+        terminal(*node, Material::None, V3(w, 0.25f * h, d), V3(0, -0.375f * h, 0)),
+        terminal(*node, edge, V3(w, h, thickness), V3(0, 0, -(d - thickness) / 2)),
+        terminal(*node, edge, V3(w, h, thickness), V3(0, 0, (d - thickness) / 2)),
+        terminal(*node, edge, V3(thickness, h, d), V3(-(w - thickness) / 2, 0, 0)),
+        terminal(*node, edge, V3(thickness, h, d), V3((w - thickness) / 2, 0, 0))
+    };
+}
 } // namespace building_rules
