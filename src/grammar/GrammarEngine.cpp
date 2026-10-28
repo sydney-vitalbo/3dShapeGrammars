@@ -13,7 +13,7 @@ GrammarEngine::~GrammarEngine() {
 
 // Expand the facade rule, build tree,
 // append terminal shape nodes to terminals vector
-void GrammarEngine::GenerateFacade() {
+void GrammarEngine::GenerateTest() {
     this->root = ShapeNode{};
     this->root.symbol = Symbol::Facade;
     this->root.position = V3(0, 0, -3.0f);
@@ -26,7 +26,7 @@ void GrammarEngine::GenerateFacade() {
     // testing subdivison (splitting height into floors) and repetition (bays within floor)
     params.floors = 3;
     params.bays = 3;
-    this->root = building_rules::buildingRoot(params, true);
+    this->root = building_rules::buildingRoot(params, false);
 
     // Rules determine all bays, windows, and terminal geometry.
     GenerateTree(&this->root);

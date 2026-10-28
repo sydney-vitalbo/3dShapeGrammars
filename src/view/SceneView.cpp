@@ -32,9 +32,7 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
 
     //ask the engine to generate a building preset
-    //makeOffice() returns an unexpanded root, and the engine expands it and fills engine.terminals with the objects to render each frame
-    building_rules::Parameters params;
-    engine.GenerateFromRoot(building_rules::makeOffice(params));
+    engine.GenerateTest();
 }
 
 void SceneView::initGLState() { //enabling opengl features
