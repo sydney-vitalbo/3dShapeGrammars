@@ -152,18 +152,29 @@ void expandEntrance(ShapeNode* node) {
     };
 }
 
-// Window -> terminal frame + glass + center mullion + sill.
+// Window -> top/side frame pieces + center mullion + sill + two inset panes.
+// The panes fill separate openings; no solid backing box or glass under the
+// mullion. Frame pieces meet at edges instead of sharing visible face areas.
 void expandWindow(ShapeNode* node) {
     const Material frame = node->building.apartment ? Material::Stone : Material::Wood;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
+    const float side = 0.06f * w, trim = 0.065f * h;
+    const float openingHeight = h - 2 * trim, mullion = 0.035f * w;
+    const float paneWidth = (w - 2 * side - mullion) / 2;
+    const float paneX = (mullion + paneWidth) / 2;
     node->children = {
-        terminal(*node, frame, node->size),
-        terminal(*node, Material::Glass, V3(0.88f * w, 0.87f * h, 0.35f * d),
-            V3(0, 0, 0.55f * d)),
-        terminal(*node, frame, V3(0.035f * w, 0.87f * h, 0.36f * d),
-            V3(0, 0, 0.56f * d)),
-        terminal(*node, frame, V3(1.06f * w, 0.055f * h, 1.5f * d),
-            V3(0, -0.48f * h, 0.1f * d))
+        terminal(*node, frame, V3(w, trim, d), V3(0, (h - trim) / 2, 0)),
+        terminal(*node, frame, V3(side, openingHeight, d), V3(-(w - side) / 2, 0, 0)),
+        terminal(*node, frame, V3(side, openingHeight, d), V3((w - side) / 2, 0, 0)),
+        terminal(*node, frame, V3(mullion, openingHeight, d)),
+        // The sill replaces the bottom frame piece. Its back aligns with the
+        // frame and its bottom stays inside the window (also used for doors).
+        terminal(*node, frame, V3(1.06f * w, trim, 1.35f * d),
+            V3(0, -(h - trim) / 2, 0.175f * d)),
+        terminal(*node, Material::Glass, V3(paneWidth, openingHeight, 0.35f * d),
+            V3(-paneX, 0, 0.225f * d)),
+        terminal(*node, Material::Glass, V3(paneWidth, openingHeight, 0.35f * d),
+            V3(paneX, 0, 0.225f * d))
     };
 }
 
@@ -172,11 +183,13 @@ void expandBalcony(ShapeNode* node) {
     constexpr float slab = 0.08f, rail = 0.055f, guard = 0.43f;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
     const float guardY = -h / 2 + slab + guard / 2;
+    // Side guards stop at the front guard's inner face, avoiding overlapping
+    // top faces at the corners. All guards stand on, not inside, the slab.
     node->children = {
         terminal(*node, Material::Stone, V3(w, slab, d), V3(0, -h / 2 + slab / 2, 0)),
         terminal(*node, Material::Wood, V3(w, guard, rail), V3(0, guardY, (d - rail) / 2)),
-        terminal(*node, Material::Wood, V3(rail, guard, d), V3(-(w - rail) / 2, guardY, 0)),
-        terminal(*node, Material::Wood, V3(rail, guard, d), V3((w - rail) / 2, guardY, 0))
+        terminal(*node, Material::Wood, V3(rail, guard, d - rail), V3(-(w - rail) / 2, guardY, -rail / 2)),
+        terminal(*node, Material::Wood, V3(rail, guard, d - rail), V3((w - rail) / 2, guardY, -rail / 2))
     };
 }
 
@@ -185,12 +198,15 @@ void expandRoof(ShapeNode* node) {
     constexpr float thickness = 0.10f;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
     const Material edge = node->building.apartment ? Material::Wood : Material::Stone;
+    // Inset the deck on all four sides. Front/rear parapets span the width;
+    // side parapets fit between them, so neither corners nor deck faces overlap.
     node->children = {
-        terminal(*node, Material::None, V3(w, 0.25f * h, d), V3(0, -0.375f * h, 0)),
+        terminal(*node, Material::None, V3(w - 2 * thickness, 0.25f * h, d - 2 * thickness),
+            V3(0, -0.375f * h, 0)),
         terminal(*node, edge, V3(w, h, thickness), V3(0, 0, -(d - thickness) / 2)),
         terminal(*node, edge, V3(w, h, thickness), V3(0, 0, (d - thickness) / 2)),
-        terminal(*node, edge, V3(thickness, h, d), V3(-(w - thickness) / 2, 0, 0)),
-        terminal(*node, edge, V3(thickness, h, d), V3((w - thickness) / 2, 0, 0))
+        terminal(*node, edge, V3(thickness, h, d - 2 * thickness), V3(-(w - thickness) / 2, 0, 0)),
+        terminal(*node, edge, V3(thickness, h, d - 2 * thickness), V3((w - thickness) / 2, 0, 0))
     };
 }
 } // namespace building_rules
