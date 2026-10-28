@@ -29,6 +29,17 @@ void GrammarEngine::GenerateFacade() {
     PrintTerminals();
 }
 
+//Expand a building preset root (office/apartment/etc)
+// (basically the same as generateFacade but for any preset the user chooses)
+void GrammarEngine::GenerateFromRoot(const ShapeNode& presetRoot) {
+    this->root = presetRoot;
+    this->root.id = 0;
+
+    GenerateTree(&this->root);
+    terminals.clear();
+    CollectTerminals(&this->root, V3(0, 0, 0));
+}
+
 // generate grammar tree for a given preset
 void GrammarEngine::GenerateTree(ShapeNode* node) {
     if (node == nullptr) {

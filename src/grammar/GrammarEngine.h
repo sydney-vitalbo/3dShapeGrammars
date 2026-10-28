@@ -22,6 +22,7 @@ public:
     ~GrammarEngine();
 
     void GenerateFacade();
+    void GenerateFromRoot(const ShapeNode& presetRoot);
     void GenerateTree(ShapeNode* node);
     void PrintTree(const ShapeNode* node, int depth = 0);
     void CollectTerminals(ShapeNode* node, V3 parentPose);
