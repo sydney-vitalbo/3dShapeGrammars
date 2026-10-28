@@ -31,8 +31,10 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     boxMesh = primitives::makeUnitBox();
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
 
-    //ask engine to expand a facade into terminal shapes. engine.terminals now holds the pieces we render each frame!
-    engine.GenerateFacade();
+    //ask the engine to generate a building preset
+    //makeOffice() returns an unexpanded root, and the engine expands it and fills engine.terminals with the objects to render each frame
+    building_rules::Parameters params;
+    engine.GenerateFromRoot(building_rules::makeOffice(params));
 }
 
 void SceneView::initGLState() { //enabling opengl features
@@ -112,7 +114,24 @@ void SceneView::drawGroundGrid() {
 void SceneView::drawGrammarScene() {
     //each terminal has a world-space position, a size, and a material. draw the unit box moved+scaled to match, tinted by material
     for (ShapeNode& t : engine.terminals) {
-        float r, g, b;
+        //map the grammar Material tag to an RGB tint for this terminal
+        float r = 0.8f, g = 0.8f, b = 0.8f;
+        switch (t.material) {
+            case Material::Stone: r = 0.75f; g = 0.79f; b = 0.82f; break; // light gray stone
+            case Material::Glass: r = 0.20f; g = 0.56f; b = 0.68f; break; // blue-teal glass
+            case Material::Wood:  r = 0.18f; g = 0.25f; b = 0.30f; break; // dark trim
+            case Material::None:  r = 0.19f; g = 0.22f; b = 0.24f; break; // roof deck
+        }
+        glColor3f(r, g, b);
+
+        //meshes are unit-sized and centered at the origin
+        //to place a copy somewhere, temporarily change openGL's "modelview" transform, draw, then undo the change:
+        //   glPushMatrix() : save the current transform
+        //   glTranslatef() : move the origin for whatever we draw next
+        //   glScalef()     : resize whatever we draw next
+        //   <draw>
+        //   glPopMatrix()  : restore the saved transform
+        //https://www.scribd.com/document/135598965/NeHe-OpenGL-Tutorial#page=9
 
         glPushMatrix();
         glTranslatef(t.position[0], t.position[1], t.position[2]); //world position
