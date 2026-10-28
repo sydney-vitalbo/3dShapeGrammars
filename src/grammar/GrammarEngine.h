@@ -22,7 +22,6 @@ public:
     ~GrammarEngine();
 
     void GenerateTest();
-    void GenerateFromRoot(const ShapeNode& presetRoot);
     void GenerateTree(ShapeNode* node);
     void PrintTree(const ShapeNode* node, int depth = 0);
     void CollectTerminals(ShapeNode* node, V3 parentPose, M33 parentRotation = M33(1.0f));
