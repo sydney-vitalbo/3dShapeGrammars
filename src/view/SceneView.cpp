@@ -318,6 +318,7 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     buildSelectionRay(mouseX, mouseY, origin, dir);
 
     // Walk every terminal and remember the nearest one the ray enters
+    // NOTE: supports boxes currently- cylinders fall back to their bounding box, which is fine for whole-building selection?
     float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
     bool hitAny = false;
     for (const ShapeNode& t : engine.terminals) {
