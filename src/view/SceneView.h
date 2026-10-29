@@ -79,11 +79,37 @@ private:
      */
     void drawSelectionHighlight();
 
+    /**
+     * Intersect a ray with the flat ground plane (y = 0)
+     * params: origin,dir  the ray (from buildSelectionRay)
+     *         outPoint    (out) where the ray meets the ground
+     * returns true if the ray actually meets the ground; false if it points up
+     *         or runs parallel to the ground (so no valid hit point)
+     */
+    bool rayHitGround(const V3& origin, const V3& dir, V3& outPoint) const;
+
+    /**
+     * Snap a world point to the nearest grid intersection on the ground
+     * Only X and Z are snapped
+     */
+    V3 snapToGrid(const V3& point) const;
+
     Camera camera;
     bool glInitialized = false;
 
     //selection state (just a flag right now...change once buildings have ids)
     bool buildingSelected = false;
+
+    //building placement
+    //applies this offset when drawing (dragging just updates this)
+    V3 buildingOffset = V3(0, 0, 0);
+
+    //while a drag is in progress these track the move:
+    bool movingBuilding = false; // true between grabbing and releasing the building
+
+    //Offset between the building's placement and the ground point under the cursor at the moment of the grab
+    //needed bc this stops the building from snapping its center to the cursor when you grab it off-center
+    V3 grabOffset = V3(0, 0, 0);
 
     // Cached unit meshes... will build each primitive once and reuse it
     // each instance will be scaled via the modelview matrix

@@ -113,6 +113,10 @@ void SceneView::drawGroundGrid() {
 }
 
 void SceneView::drawGrammarScene() {
+    //Apply the building's ground-plane placement for every piece we draw below
+    glPushMatrix();
+    glTranslatef(buildingOffset[0], buildingOffset[1], buildingOffset[2]);
+
     //each terminal has a world-space position, a size, and a material. draw the unit box moved+scaled to match, tinted by material
     for (ShapeNode& t : engine.terminals) {
         //map the grammar Material tag to an RGB tint for this terminal
@@ -159,6 +163,8 @@ void SceneView::drawGrammarScene() {
     if (buildingSelected) {
         drawSelectionHighlight();
     }
+
+    glPopMatrix(); // undo the buildingOffset translate
 }
 
 //draw highlight box around the whole selected building
@@ -317,6 +323,9 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     V3 origin, dir;
     buildSelectionRay(mouseX, mouseY, origin, dir);
 
+    //The building is drawn shifted by buildingOffset, but engine.terminals still hold their original (un-shifted) positions
+    origin = origin - buildingOffset;
+
     // Walk every terminal and remember the nearest one the ray enters
     // NOTE: supports boxes currently- cylinders fall back to their bounding box, which is fine for whole-building selection?
     float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
@@ -335,6 +344,30 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     return hitAny;
 }
 
+// Find where a ray crosses the flat ground plane (y = 0)
+//
+// just need the t where the ray's y-component becomes 0:
+//     origin.y + t * dir.y = 0   ->   t = -origin.y / dir.y
+// If dir.y is ~0 the ray runs parallel to the ground, if t is negative the ground is behind the camera (no hit)
+bool SceneView::rayHitGround(const V3& origin, const V3& dir, V3& outPoint) const {
+    V3 o = origin, d = dir; // local mutable copies (V3 API is non-const)
+    const float dy = d[1];
+    if (std::abs(dy) < 1e-8f) return false;     // parallel to the ground
+    const float t = -o[1] / dy;
+    if (t < 0.0f) return false;                 // ground is behind the camera
+    outPoint = o + d * t;                       // the point where y == 0
+    return true;
+}
+
+// Snap a ground point to the nearest grid intersection
+V3 SceneView::snapToGrid(const V3& point) const {
+    V3 p = point; // local mutable copy
+    const float step = grid.spacing;            // one grid cell, the snap unit
+    const float sx = std::round(p[0] / step) * step; //round to nearest grid step
+    const float sz = std::round(p[2] / step) * step;
+    return V3(sx, p[1], sz);
+}
+
 // fltk's input callback
 // return 1 if we consumed the input
 //https://www.fltk.org/doc-1.3/events.html
@@ -345,12 +378,24 @@ int SceneView::handle(int event) {
         lastMouseX = Fl::event_x(); //current cursor pos in pixels
         lastMouseY = Fl::event_y();
         if (Fl::event_button() == FL_LEFT_MOUSE) {
-            // A left click does the selection test at the clicked pixel
-            pickComponent(Fl::event_x(), Fl::event_y());
+            //left click does the selection test at the clicked pixel.
+            // (pickComponent leaves the GL context current and the camera matrices applied, so we can build another ray right after it)
+            bool hitBuilding = pickComponent(Fl::event_x(), Fl::event_y());
 
-            //also start a drag here so the SAME left button can still orbit
-            // the camera once the mouse moves (handled below in FL_DRAG)
-            dragging = true;
+            if (hitBuilding) {
+                //clicked ON the building -> begin MOVING it (not camera orbiting)
+                V3 origin, dir, groundPt;
+                buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
+                if (rayHitGround(origin, dir, groundPt)) {
+                    grabOffset = buildingOffset - groundPt; // placement relative to grab point
+                    movingBuilding = true;
+                }
+                dragging = false; // don't orbit while moving the building
+            } else {
+                //clicked empty space ->  orbit the camera once the mouse moves (handled below in FL_DRAG).
+                movingBuilding = false;
+                dragging = true;
+            }
             //the selection highlight changed, so repaint
             redraw();
         } else if (Fl::event_button() == FL_MIDDLE_MOUSE ||
@@ -366,7 +411,23 @@ int SceneView::handle(int event) {
         lastMouseX = Fl::event_x();
         lastMouseY = Fl::event_y();
 
-        if (dragging) {
+        if (movingBuilding) {
+            //dragging the selected building along the ground. Rebuild the ray for the cursor's new position and see where it meets the ground
+            make_current();
+            float aspect = pixel_h() > 0 ? static_cast<float>(pixel_w()) / pixel_h() : 1.0f;
+            camera.applyProjection(aspect); // matrices must be current for the ray
+            camera.applyView();
+
+            V3 origin, dir, groundPt;
+            buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
+            if (rayHitGround(origin, dir, groundPt)) {
+                //New placement = ground point + the grab offset we stored, so the building keeps the same spot under the cursor
+                //then snap to the grid
+                V3 placement = groundPt + grabOffset;
+                buildingOffset = snapToGrid(placement);
+                redraw();
+            }
+        } else if (dragging) {
             //pixels -> degrees
             camera.orbit(dx * 0.4f, -dy * 0.4f);
             redraw();
@@ -380,6 +441,7 @@ int SceneView::handle(int event) {
     case FL_RELEASE:
         dragging = false;
         panning = false;
+        movingBuilding = false; // stop moving the building when the button is let go
         return 1;
 
     case FL_MOUSEWHEEL: {
