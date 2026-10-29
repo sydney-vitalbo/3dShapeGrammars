@@ -45,8 +45,30 @@ private:
      */
     void drawGrammarScene();
 
+    /**
+     * Build a world-space picking ray from a pixel (mouseX, mouseY)
+     * Outputs the ray origin (camera/eye) and a normalized direction
+     */
+    void buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& outDir);
+
+    /**
+     * Intersect ray with terminal
+     * Returns true on hit and writes the ray's t value (distance along dir) to outT
+     */
+    bool rayHitTerminal(const V3& origin, const V3& dir,
+                         const ShapeNode& terminal, float& outT) const;
+
+    /**
+     * Pick the closest terminal under the cursor
+     * Returns true if any terminal was hit (change once buildings have ids)
+     */
+    bool pickComponent(int mouseX, int mouseY);
+
     Camera camera;
     bool glInitialized = false;
+
+    //selection state (just a flag right now...change once buildings have ids)
+    bool buildingSelected = false;
 
     // Cached unit meshes... will build each primitive once and reuse it
     // each instance will be scaled via the modelview matrix

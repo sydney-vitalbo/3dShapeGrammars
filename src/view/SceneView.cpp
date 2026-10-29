@@ -5,7 +5,11 @@
 #include <FL/Fl.H>
 #include <FL/gl.h>
 
-#include <cstdlib> // std::abs
+#include <cstdlib>   // std::abs
+#include <cmath>     // std::abs(float)
+#include <limits>    // std::numeric_limits
+#include <utility>   // std::swap
+#include <algorithm> // std::min, std::max
 
 //macOS compatibility
 #ifdef __APPLE__
@@ -119,6 +123,12 @@ void SceneView::drawGrammarScene() {
             case Material::Wood:  r = 0.18f; g = 0.25f; b = 0.30f; break; // dark trim
             case Material::None:  r = 0.19f; g = 0.22f; b = 0.24f; break; // roof deck
         }
+        //when the building is selected, warm/brighten the tint so it's highlighted
+        if (buildingSelected) {
+            r = std::min(1.0f, r * 0.6f + 0.45f);
+            g = std::min(1.0f, g * 0.6f + 0.38f);
+            b = std::min(1.0f, b * 0.6f + 0.10f);
+        }
         glColor3f(r, g, b);
 
         //meshes are unit-sized and centered at the origin
@@ -144,6 +154,124 @@ void SceneView::drawGrammarScene() {
         boxMesh.draw(); // all current terminals are box shapes
         glPopMatrix();
     }
+
+    //selection outline: re-draw each box as a bright wireframe so the selected
+    //building has a clear highlighted edge regardless of material/lighting
+    if (buildingSelected) {
+        glDisable(GL_LIGHTING);        // outline is a flat, constant color
+        glDisable(GL_DEPTH_TEST);      // draw the edges on top so they're visible
+        glColor3f(1.0f, 0.85f, 0.25f); // amber highlight
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        for (ShapeNode& t : engine.terminals) {
+            glPushMatrix();
+            glTranslatef(t.position[0], t.position[1], t.position[2]);
+            const float rotation[16] = {
+                t.rotation[0][0], t.rotation[1][0], t.rotation[2][0], 0,
+                t.rotation[0][1], t.rotation[1][1], t.rotation[2][1], 0,
+                t.rotation[0][2], t.rotation[1][2], t.rotation[2][2], 0,
+                0, 0, 0, 1
+            };
+            glMultMatrixf(rotation);
+            glScalef(t.size[0], t.size[1], t.size[2]);
+            boxMesh.draw();
+            glPopMatrix();
+        }
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // restore normal fill
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_LIGHTING);
+    }
+}
+
+//build a world-space picking ray from a pixel in this widget
+// https://www.khronos.org/opengl/wiki/GluProject_and_gluUnProject_code
+void SceneView::buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& outDir) {
+    GLint viewport[4];
+    GLdouble modelview[16];
+    GLdouble projection[16];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
+    glGetDoublev(GL_PROJECTION_MATRIX, projection);
+
+    //FLTK's mouse Y grows downward; OpenGL's window Y grows upward. Also account
+    //for high-DPI backing scale by mapping widget pixels to framebuffer pixels.
+    const float sx = pixel_w() > 0 && w() > 0 ? static_cast<float>(pixel_w()) / w() : 1.0f;
+    const float sy = pixel_h() > 0 && h() > 0 ? static_cast<float>(pixel_h()) / h() : 1.0f;
+    const double winX = mouseX * sx;
+    const double winY = viewport[3] - mouseY * sy;
+
+    GLdouble nx, ny, nz, fx, fy, fz;
+    gluUnProject(winX, winY, 0.0, modelview, projection, viewport, &nx, &ny, &nz);
+    gluUnProject(winX, winY, 1.0, modelview, projection, viewport, &fx, &fy, &fz);
+
+    outOrigin = V3(static_cast<float>(nx), static_cast<float>(ny), static_cast<float>(nz));
+
+    V3 farPoint(static_cast<float>(fx), static_cast<float>(fy), static_cast<float>(fz));
+    outDir = (farPoint - outOrigin).Normalize();
+}
+
+// Ray vs. oriented box (slab method in the box's local frame). The box is unit
+// cube [-size/2, +size/2] rotated by terminal.rotation and centered at
+// terminal.position. We transform the ray into local space (rotation is
+// orthonormal, so its transpose is its inverse) and run the standard AABB slab test.
+bool SceneView::rayHitTerminal(const V3& origin, const V3& dir,
+                                const ShapeNode& terminal, float& outT) const {
+    //the V3/M33 API is non-const throughout, so work on local mutable copies
+    V3 org = origin, direction = dir;
+    V3 center = terminal.position;
+    V3 size = terminal.size;
+    M33 rot = terminal.rotation;
+    M33 inv = rot.Transpose(); // local <- world (orthonormal inverse)
+
+    //bring ray into the box's local space
+    V3 o = inv * (org - center);
+    V3 d = inv * direction;
+
+    V3 half = size * 0.5f;
+
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
+    for (int i = 0; i < 3; ++i) {
+        const float oi = o[i], di = d[i], h = half[i];
+        if (std::abs(di) < 1e-8f) {
+            //ray parallel to this slab: miss if origin outside the slab
+            if (oi < -h || oi > h) return false;
+        } else {
+            float t1 = (-h - oi) / di;
+            float t2 = ( h - oi) / di;
+            if (t1 > t2) std::swap(t1, t2);
+            tMin = std::max(tMin, t1);
+            tMax = std::min(tMax, t2);
+            if (tMin > tMax) return false;
+        }
+    }
+    outT = tMin;
+    return true;
+}
+
+//cast a ray through the cursor and find the nearest terminal it hits. Returns true if anything was hit
+bool SceneView::pickComponent(int mouseX, int mouseY) {
+    //picking runs from the event handler, so make this window's GL context
+    //current before any GL calls, then rebuild the matrices draw() uses
+    make_current();
+    float aspect = pixel_h() > 0 ? static_cast<float>(pixel_w()) / pixel_h() : 1.0f;
+    camera.applyProjection(aspect); // projection must be current for gluUnProject
+    camera.applyView();             // modelview = this frame's view
+
+    V3 origin, dir;
+    buildSelectionRay(mouseX, mouseY, origin, dir);
+
+    float bestT = std::numeric_limits<float>::max();
+    bool hitAny = false;
+    for (const ShapeNode& t : engine.terminals) {
+        float tHit;
+        if (rayHitTerminal(origin, dir, t, tHit) && tHit < bestT) { //is this termincal closer to camera than current best t?
+            bestT = tHit;
+            hitAny = true;
+        }
+    }
+
+    buildingSelected = hitAny; // click on empty space clears selection
+    return hitAny;
 }
 
 // fltk's input callback
@@ -156,7 +284,11 @@ int SceneView::handle(int event) {
         lastMouseX = Fl::event_x(); //current cursor pos in pixels
         lastMouseY = Fl::event_y();
         if (Fl::event_button() == FL_LEFT_MOUSE) {
+            //left click selects the building under the cursor (or clears the selection when clicking empty space)
+            //Still allow orbiting on drag
+            pickComponent(Fl::event_x(), Fl::event_y());
             dragging = true;
+            redraw();
         } else if (Fl::event_button() == FL_MIDDLE_MOUSE ||
                    Fl::event_button() == FL_RIGHT_MOUSE) {
             panning = true;
