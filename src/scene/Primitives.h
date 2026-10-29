@@ -28,7 +28,7 @@ Mesh makeUnitCylinder(int segments = 24);
  * flat reference grid on the ground plane (y = 0)
  */
 struct GroundGrid {
-    float halfExtent = 10.0f; // grid spans [-halfExtent, +halfExtent]
+    float halfExtent = 20.0f; // grid spans [-halfExtent, +halfExtent]
     float spacing = 1.0f;     // distance between grid lines (the snap unit)
 };
 

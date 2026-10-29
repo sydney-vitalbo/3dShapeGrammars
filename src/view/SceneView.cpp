@@ -363,8 +363,14 @@ bool SceneView::rayHitGround(const V3& origin, const V3& dir, V3& outPoint) cons
 V3 SceneView::snapToGrid(const V3& point) const {
     V3 p = point; // local mutable copy
     const float step = grid.spacing;            // one grid cell, the snap unit
-    const float sx = std::round(p[0] / step) * step; //round to nearest grid step
-    const float sz = std::round(p[2] / step) * step;
+    float sx = std::round(p[0] / step) * step;  // round to nearest grid step
+    float sz = std::round(p[2] / step) * step;
+
+    // keep the placement inside the grid's extent so you can't drag off the edge
+    const float limit = grid.halfExtent;
+    sx = std::max(-limit, std::min(limit, sx));
+    sz = std::max(-limit, std::min(limit, sz));
+
     return V3(sx, p[1], sz);
 }
 
