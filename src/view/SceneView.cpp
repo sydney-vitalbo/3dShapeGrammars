@@ -155,36 +155,79 @@ void SceneView::drawGrammarScene() {
         glPopMatrix();
     }
 
-    //selection outline: re-draw each box as a bright wireframe so the selected
-    //building has a clear highlighted edge regardless of material/lighting
+    //when selected, add a single outline around the whole building
     if (buildingSelected) {
-        glDisable(GL_LIGHTING);        // outline is a flat, constant color
-        glDisable(GL_DEPTH_TEST);      // draw the edges on top so they're visible
-        glColor3f(1.0f, 0.85f, 0.25f); // amber highlight
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        for (ShapeNode& t : engine.terminals) {
-            glPushMatrix();
-            glTranslatef(t.position[0], t.position[1], t.position[2]);
-            const float rotation[16] = {
-                t.rotation[0][0], t.rotation[1][0], t.rotation[2][0], 0,
-                t.rotation[0][1], t.rotation[1][1], t.rotation[2][1], 0,
-                t.rotation[0][2], t.rotation[1][2], t.rotation[2][2], 0,
-                0, 0, 0, 1
-            };
-            glMultMatrixf(rotation);
-            glScalef(t.size[0], t.size[1], t.size[2]);
-            boxMesh.draw();
-            glPopMatrix();
-        }
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // restore normal fill
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_LIGHTING);
+        drawSelectionHighlight();
     }
 }
 
-//build a world-space picking ray from a pixel in this widget
+//draw highlight box around the whole selected building
+void SceneView::drawSelectionHighlight() {
+    if (engine.terminals.empty()) return;
+
+    //1) find the building's bounding box: the min and max x/y/z
+    //   across the 8 corners of every terminal. Terminals can be rotated, so
+    //   rotate each corner into world space before growing the bounds
+    AABB bounds; // starts "inverted" (min=+inf, max=-inf) so the first point sets it
+    for (ShapeNode& t : engine.terminals) {
+        V3 half = t.size * 0.5f;
+        //the 8 corners of a box are every +/- combination of the half extents
+        for (int cx = -1; cx <= 1; cx += 2)
+        for (int cy = -1; cy <= 1; cy += 2)
+        for (int cz = -1; cz <= 1; cz += 2) {
+            V3 localCorner(cx * half[0], cy * half[1], cz * half[2]);
+            //world corner = center + rotation * localCorner
+            V3 worldCorner = t.position + t.rotation * localCorner;
+            bounds.AddPoint(worldCorner);
+        }
+    }
+
+    //2) pad the box slightly so the outline floats just outside
+    const float pad = 0.03f;
+    V3 lo = bounds.minC - V3(pad, pad, pad);
+    V3 hi = bounds.maxC + V3(pad, pad, pad);
+
+    //3) the 8 corners of that bounding box
+    const V3 corners[8] = {
+        V3(lo[0], lo[1], lo[2]), V3(hi[0], lo[1], lo[2]),
+        V3(hi[0], hi[1], lo[2]), V3(lo[0], hi[1], lo[2]),
+        V3(lo[0], lo[1], hi[2]), V3(hi[0], lo[1], hi[2]),
+        V3(hi[0], hi[1], hi[2]), V3(lo[0], hi[1], hi[2])
+    };
+    //the 12 edges, given as pairs of corner indices
+    const int edges[12][2] = {
+        {0,1},{1,2},{2,3},{3,0}, // bottom face
+        {4,5},{5,6},{6,7},{7,4}, // top face
+        {0,4},{1,5},{2,6},{3,7}  // vertical pillars
+    };
+
+    //4) color the edges of BB
+    glDisable(GL_LIGHTING);        // outline is a flat, constant color
+    glDisable(GL_DEPTH_TEST);      // draw on top so the border is never hidden
+    glColor3f(1.0f, 0.85f, 0.25f); // highlight
+    glLineWidth(2.0f);             // a bit thicker
+    glBegin(GL_LINES);
+    for (const auto& e : edges) {
+        V3 a = corners[e[0]];
+        V3 b = corners[e[1]];
+        glVertex3f(a[0], a[1], a[2]);
+        glVertex3f(b[0], b[1], b[2]);
+    }
+    glEnd();
+    glLineWidth(1.0f);             // restore default line width
+    glEnable(GL_DEPTH_TEST);       // restore normal depth testing
+    glEnable(GL_LIGHTING);         // restore lighting for the rest of the scene
+}
+
+// Turn a 2D mouse click into a 3D "selection ray" shooting into the scene.
+// gluUnProject: give it a window pixel plus a depth, and it tells you the matching 3D world point
+// Outputs: outOrigin = where the ray starts, outDir = unit direction it travels.
 // https://www.khronos.org/opengl/wiki/GluProject_and_gluUnProject_code
 void SceneView::buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& outDir) {
+    // gluUnProject needs the same things OpenGL used to draw this frame:
+    //   viewport   = the pixel rectangle we render into (x, y, width, height)
+    //   modelview  = where the camera is / how the world is positioned
+    //   projection = the perspective transform
     GLint viewport[4];
     GLdouble modelview[16];
     GLdouble projection[16];
@@ -192,85 +235,102 @@ void SceneView::buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& out
     glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
     glGetDoublev(GL_PROJECTION_MATRIX, projection);
 
-    //FLTK's mouse Y grows downward; OpenGL's window Y grows upward. Also account
-    //for high-DPI backing scale by mapping widget pixels to framebuffer pixels.
+    //fix coord-system before we can use the mouse pixel:
+    //  (1) Y is flipped. FLTK measures the mouse from the TOP-LEFT (y grows
+    //      downward), but OpenGL measures its window from the BOTTOM-LEFT (y
+    //      grows upward). So flip it: glY = height - mouseY
+    //
+    //  (b) Retina scaling. The framebuffer has more pixels than the of mouse space's size
+    //      So have to scale the mouse coordinates up by that ratio
     const float sx = pixel_w() > 0 && w() > 0 ? static_cast<float>(pixel_w()) / w() : 1.0f;
     const float sy = pixel_h() > 0 && h() > 0 ? static_cast<float>(pixel_h()) / h() : 1.0f;
     const double winX = mouseX * sx;
-    const double winY = viewport[3] - mouseY * sy;
+    const double winY = viewport[3] - mouseY * sy; // viewport[3] is the height
 
+    // Unproject the same pixel at two depths to get two points:
+    //   depth 0.0 -> point on the near plane (close to the camera)
+    //   depth 1.0 -> point on the far plane
     GLdouble nx, ny, nz, fx, fy, fz;
     gluUnProject(winX, winY, 0.0, modelview, projection, viewport, &nx, &ny, &nz);
     gluUnProject(winX, winY, 1.0, modelview, projection, viewport, &fx, &fy, &fz);
 
+    //ray starts at the near point and ends at far point:
     outOrigin = V3(static_cast<float>(nx), static_cast<float>(ny), static_cast<float>(nz));
-
     V3 farPoint(static_cast<float>(fx), static_cast<float>(fy), static_cast<float>(fz));
     outDir = (farPoint - outOrigin).Normalize();
 }
 
-// Ray vs. oriented box (slab method in the box's local frame). The box is unit
-// cube [-size/2, +size/2] rotated by terminal.rotation and centered at
-// terminal.position. We transform the ray into local space (rotation is
-// orthonormal, so its transpose is its inverse) and run the standard AABB slab test.
+//Determine if selection ray hit this terminal
+//"slab method": https://en.wikipedia.org/wiki/Slab_method
+// Returns true on a hit and writes the entry distance to outT (used to pick the closest terminal)
 bool SceneView::rayHitTerminal(const V3& origin, const V3& dir,
                                 const ShapeNode& terminal, float& outT) const {
-    //the V3/M33 API is non-const throughout, so work on local mutable copies
+    //V3/M33 math API has no const methods, so copy into mutable locals
     V3 org = origin, direction = dir;
     V3 center = terminal.position;
     V3 size = terminal.size;
     M33 rot = terminal.rotation;
-    M33 inv = rot.Transpose(); // local <- world (orthonormal inverse)
+    M33 inv = rot.Transpose(); // world-orientation -> local-orientation (inverse)
 
-    //bring ray into the box's local space
-    V3 o = inv * (org - center);
-    V3 d = inv * direction;
+    // Move the ray into the box's local space: subtract the box center (so the
+    // box sits at the origin) and un-rotate it. Now the box is axis-aligned and
+    // spans [-half, +half] on each axis
+    V3 o = inv * (org - center); // ray start,  in local space
+    V3 d = inv * direction;      // ray heading, in local space
+    V3 half = size * 0.5f;       // half the box size on each axis
 
-    V3 half = size * 0.5f;
-
+    //start with "the whole ray" and shrink the valid [tMin, tMax] window one axis at a time
     float tMin = 0.0f;
     float tMax = std::numeric_limits<float>::max();
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 3; ++i) { // i = 0,1,2  ->  X, Y, Z axis
         const float oi = o[i], di = d[i], h = half[i];
         if (std::abs(di) < 1e-8f) {
-            //ray parallel to this slab: miss if origin outside the slab
-            if (oi < -h || oi > h) return false;
+            //ray runs parallel to this pair of walls (it never crosses them)
+            //then it can only be inside if it already STARTS between them
+            if (oi < -h || oi > h) return false; // started outside -> definite miss
         } else {
+            //distances at which the ray crosses this axis's two walls (-h and +h)
             float t1 = (-h - oi) / di;
             float t2 = ( h - oi) / di;
-            if (t1 > t2) std::swap(t1, t2);
-            tMin = std::max(tMin, t1);
-            tMax = std::min(tMax, t2);
-            if (tMin > tMax) return false;
+            if (t1 > t2) std::swap(t1, t2); // make t1 the near wall, t2 the far wall
+            //tighten the overlap window to this slab's [t1, t2].
+            tMin = std::max(tMin, t1); // latest entry so far
+            tMax = std::min(tMax, t2); // earliest exit so far
+            if (tMin > tMax) return false; // slabs don't overlap -> the ray misses
         }
     }
+    //survived all three axes: the ray enters the box at distance tMin
     outT = tMin;
     return true;
 }
 
-//cast a ray through the cursor and find the nearest terminal it hits. Returns true if anything was hit
+//Determine what the user clicked
 bool SceneView::pickComponent(int mouseX, int mouseY) {
-    //picking runs from the event handler, so make this window's GL context
-    //current before any GL calls, then rebuild the matrices draw() uses
+    //this runs from the mouse-event handler (not draw()) so the GL context
+    // may not be active. make_current() activates it
     make_current();
     float aspect = pixel_h() > 0 ? static_cast<float>(pixel_w()) / pixel_h() : 1.0f;
     camera.applyProjection(aspect); // projection must be current for gluUnProject
     camera.applyView();             // modelview = this frame's view
 
+    //build the ray that goes from the camera through the clicked pixel
     V3 origin, dir;
     buildSelectionRay(mouseX, mouseY, origin, dir);
 
-    float bestT = std::numeric_limits<float>::max();
+    // Walk every terminal and remember the nearest one the ray enters
+    float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
     bool hitAny = false;
     for (const ShapeNode& t : engine.terminals) {
         float tHit;
-        if (rayHitTerminal(origin, dir, t, tHit) && tHit < bestT) { //is this termincal closer to camera than current best t?
+        // rayHitTerminal returns true + the entry distance if the ray pierces
+        // this box; we keep it only if it's closer than anything found before
+        if (rayHitTerminal(origin, dir, t, tHit) && tHit < bestT) {
             bestT = tHit;
             hitAny = true;
         }
     }
 
-    buildingSelected = hitAny; // click on empty space clears selection
+    buildingSelected = hitAny;
     return hitAny;
 }
 
@@ -284,10 +344,13 @@ int SceneView::handle(int event) {
         lastMouseX = Fl::event_x(); //current cursor pos in pixels
         lastMouseY = Fl::event_y();
         if (Fl::event_button() == FL_LEFT_MOUSE) {
-            //left click selects the building under the cursor (or clears the selection when clicking empty space)
-            //Still allow orbiting on drag
+            // A left click does the selection test at the clicked pixel
             pickComponent(Fl::event_x(), Fl::event_y());
+
+            //also start a drag here so the SAME left button can still orbit
+            // the camera once the mouse moves (handled below in FL_DRAG)
             dragging = true;
+            //the selection highlight changed, so repaint
             redraw();
         } else if (Fl::event_button() == FL_MIDDLE_MOUSE ||
                    Fl::event_button() == FL_RIGHT_MOUSE) {

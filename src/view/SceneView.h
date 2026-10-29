@@ -46,23 +46,38 @@ private:
     void drawGrammarScene();
 
     /**
-     * Build a world-space picking ray from a pixel (mouseX, mouseY)
-     * Outputs the ray origin (camera/eye) and a normalized direction
+     * Turn a 2D mouse pixel into a 3D selection ray that shoots from the camera into the scene
+     *
+     * params: mouseX,mouseY  cursor position in pixels
+     *         outOrigin      (out) where the ray starts, in world space
+     *         outDir         (out) unit-length direction the ray travels
      */
     void buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& outDir);
 
     /**
-     * Intersect ray with terminal
-     * Returns true on hit and writes the ray's t value (distance along dir) to outT
+     * Test whether the selection ray passes through a terminal
+     *
+     * params: origin,dir  the ray (from buildSelectionRay)
+     *         terminal    the terminal to test (uses its position, size, rotation)
+     *         outT        (out) distance from the camera to terminal
+     * returns true if the ray hits the terminal; use outT to find the closest hit
      */
     bool rayHitTerminal(const V3& origin, const V3& dir,
                          const ShapeNode& terminal, float& outT) const;
 
     /**
-     * Pick the closest terminal under the cursor
-     * Returns true if any terminal was hit (change once buildings have ids)
+     * Determine what did the user click?
+     * Builds the ray, tests it against every terminal, and keeps the closest hit
+     * Returns true if building was hit...change once buildings have ids
      */
     bool pickComponent(int mouseX, int mouseY);
+
+    /**
+     * Draw a highlight box around the whole selected building
+     *
+     * compute the building's bounding box and highlight it
+     */
+    void drawSelectionHighlight();
 
     Camera camera;
     bool glInitialized = false;
