@@ -1,5 +1,4 @@
 // Primitives.h
-//Sydney Vitalbo
 
 #ifndef SCENE_PRIMITIVES_H
 #define SCENE_PRIMITIVES_H

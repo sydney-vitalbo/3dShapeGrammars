@@ -1,5 +1,4 @@
 // Camera.h
-// Sydney Vitalbo
 
 #ifndef SCENE_CAMERA_H
 #define SCENE_CAMERA_H

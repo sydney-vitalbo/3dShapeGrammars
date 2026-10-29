@@ -1,11 +1,5 @@
 // 3D Shape Grammars: main GUI entry!
 // main.cpp
-// Sydney Vitalbo
-
-// Checkpoint 1:
-//  - Initial C++/openGL/FLTK app
-//  - Rotate/zoom camera controls
-//  - Box/cylinder primitives
 
 #include <FL/Fl.H>
 #include <FL/Fl_Double_Window.H>

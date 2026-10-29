@@ -1,6 +1,4 @@
 //Primitives.cpp
-//Sydney Vitalbo
-
 
 #include "scene/Primitives.h"
 

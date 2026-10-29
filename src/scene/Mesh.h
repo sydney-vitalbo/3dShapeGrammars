@@ -1,5 +1,4 @@
 // Mesh.h
-// Sydney Vitalbo
 
 #ifndef SCENE_MESH_H
 #define SCENE_MESH_H

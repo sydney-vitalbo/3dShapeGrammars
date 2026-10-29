@@ -1,5 +1,4 @@
 //Camera.cpp
-//Sydney Vitalbo
 
 #include "scene/Camera.h"
 

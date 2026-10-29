@@ -1,5 +1,4 @@
 //Mesh.cpp
-//Sydney Vitalbo
 
 #include "scene/Mesh.h"
 

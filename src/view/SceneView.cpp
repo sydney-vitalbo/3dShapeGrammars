@@ -1,5 +1,4 @@
 // SceneView.cpp
-// Sydney Vitalbo
 
 #include "view/SceneView.h"
 
@@ -146,35 +145,6 @@ void SceneView::drawGrammarScene() {
         glPopMatrix();
     }
 }
-
-// void SceneView::drawDemoScene() {
-//     //meshes are unit-sized and centered at the origin
-//     //to place a copy somewhere, temporarily change openGL's "modelview" transform, draw, then undo the change:
-//     //   glPushMatrix() : save the current transform
-//     //   glTranslatef() : move the origin for whatever we draw next
-//     //   glScalef()     : resize whatever we draw next
-//     //   <draw>
-//     //   glPopMatrix()  : restore the saved transform
-//     //https://www.scribd.com/document/135598965/NeHe-OpenGL-Tutorial#page=9
-
-//     // openGL applies these to the object in reverse! so scale first then translate
-
-//     //cube
-//     glPushMatrix();
-//     glTranslatef(-2.0f, 1.5f, 0.0f); // put it left of center; y=1.5 so its base sits on the ground (y=0)
-//     glScalef(2.0f, 3.0f, 2.0f);      // 2 wide, 3 tall, 2 deep (unit box was 1x1x1)
-//     glColor3f(0.80f, 0.55f, 0.35f);  // warm orange tint (this is the material color)
-//     boxMesh.draw();
-//     glPopMatrix();
-
-//     //cylinder
-//     glPushMatrix();
-//     glTranslatef(2.0f, 1.5f, 0.0f);  // right of center, base on the ground
-//     glScalef(1.6f, 3.0f, 1.6f);
-//     glColor3f(0.45f, 0.65f, 0.85f);  // cool blue tint
-//     cylinderMesh.draw();
-//     glPopMatrix();
-// }
 
 // fltk's input callback
 // return 1 if we consumed the input

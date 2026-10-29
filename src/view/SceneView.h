@@ -1,5 +1,4 @@
 // SceneView.h: the actual 3D viewport the user sees and interacts with
-// Sydney Vitalbo
 
 #ifndef VIEW_SCENEVIEW_H
 #define VIEW_SCENEVIEW_H
@@ -45,7 +44,6 @@ private:
      * Draw the terminal shapes produced by the GrammarEngine
      */
     void drawGrammarScene();
-    //void drawDemoScene();
 
     Camera camera;
     bool glInitialized = false;
