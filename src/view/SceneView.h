@@ -41,6 +41,18 @@ private:
     void drawGroundGrid();
 
     /**
+     * Load one image file (PNG) into an OpenGL texture and remember it for a
+     * given Material.
+     * (call once.. after the GL context exists)
+     */
+    void loadTexture(Material material, const char* path);
+
+    /**
+     * Load every building material's texture. Called once from the first draw().
+     */
+    void loadTextures();
+
+    /**
      * Draw the terminal shapes produced by the GrammarEngine
      */
     void drawGrammarScene();
@@ -94,8 +106,19 @@ private:
      */
     V3 snapToGrid(const V3& point) const;
 
+    /**
+     * Half the building's size on the ground (X and Z only)
+     * for keeping the buildings within the ground plane when the user drags them around
+     */
+    V3 buildingFootprintHalf() const;
+
     Camera camera;
     bool glInitialized = false;
+    bool texturesLoaded = false;
+
+    // One GL texture id per material (Material enum values index this array: None=0, Wood=1, Glass=2, Stone=3)
+    //0 means "no texture" -> use flat color
+    unsigned int materialTextures[4] = {0, 0, 0, 0};
 
     //selection state (just a flag right now...change once buildings have ids)
     bool buildingSelected = false;

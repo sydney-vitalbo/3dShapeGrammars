@@ -4,8 +4,10 @@
 
 #include <FL/Fl.H>
 #include <FL/gl.h>
+#include <FL/Fl_PNG_Image.H> // FLTK's bundled PNG decoder (no extra dependency)
 
 #include <cstdlib>   // std::abs
+#include <vector>    // repack pixel rows for glTexImage2D
 #include <cmath>     // std::abs(float)
 #include <limits>    // std::numeric_limits
 #include <utility>   // std::swap
@@ -64,6 +66,59 @@ void SceneView::initGLState() { //enabling opengl features
     glClearColor(0.12f, 0.13f, 0.16f, 1.0f); //dark gray-blue
 }
 
+// Decode one PNG with FLTK and upload it as an OpenGL texture for `material`
+//https://www.fltk.org/newsgroups.php?s0+gfltk.general+v39519+T0
+void SceneView::loadTexture(Material material, const char* path) {
+    Fl_PNG_Image img(path);
+    if (img.fail() || img.w() <= 0 || img.h() <= 0) {
+        return; // file missing/unreadable -> leave this material untextured
+    }
+
+    const int w = img.w();
+    const int h = img.h();
+    const int d = img.d();  // channels: 1=gray,3=RGB,4=RGBA
+    const int ld = img.ld() ? img.ld() : w * d; // row stride (may include padding)
+    const unsigned char* src = reinterpret_cast<const unsigned char*>(img.data()[0]);
+
+    // Repack into RGB/RGBA
+    const int outCh = (d == 4) ? 4 : 3;
+    std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * outCh);
+    for (int y = 0; y < h; ++y) {
+        const unsigned char* row = src + static_cast<size_t>(y) * ld;
+        unsigned char* out = pixels.data() + static_cast<size_t>(y) * w * outCh;
+        for (int x = 0; x < w; ++x) {
+            const unsigned char* p = row + static_cast<size_t>(x) * d;
+            if (d == 1) { out[0] = out[1] = out[2] = p[0]; }       // gray -> RGB
+            else { out[0]=p[0]; out[1]=p[1]; out[2]=p[2]; if (outCh==4) out[3]=p[3]; }
+            out += outCh;
+        }
+    }
+
+    unsigned int tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // our buffer is tightly packed
+    const GLint fmt = (outCh == 4) ? GL_RGBA : GL_RGB;
+    // gluBuild2DMipmaps handles non-power-of-two sizes and builds mipmaps, so the
+    // texture stays clean when the building is small/far on screen.
+    gluBuild2DMipmaps(GL_TEXTURE_2D, fmt, w, h, fmt, GL_UNSIGNED_BYTE, pixels.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    materialTextures[static_cast<int>(material)] = tex;
+}
+
+// Load one texture per building material
+void SceneView::loadTextures() {
+    loadTexture(Material::Stone, "src/textures/Stone.png");
+    loadTexture(Material::Glass, "src/textures/Glass.png");
+    loadTexture(Material::Wood,  "src/textures/Wood.png");
+    // Material::None (roof deck) stays untextured -> flat color.
+}
+
 // draw() is called by FLTK whenever the view needs repainting (first show,
 // after a resize, or after we call redraw()). It paints exactly one frame.
 void SceneView::draw() {
@@ -73,6 +128,11 @@ void SceneView::draw() {
         if (!glInitialized) {
             initGLState();
             glInitialized = true;
+        }
+        //textures need a current GL context, which exists here (inside draw)
+        if (!texturesLoaded) {
+            loadTextures();
+            texturesLoaded = true;
         }
         //on resize tell OpenGL the new size, and recompute the projection so the picture's aspect ratio matches the window and nothing looks stretched
         // https://stackoverflow.com/questions/29153163/opengl-how-to-fit-a-window-on-resize
@@ -127,13 +187,40 @@ void SceneView::drawGrammarScene() {
             case Material::Wood:  r = 0.18f; g = 0.25f; b = 0.30f; break; // dark trim
             case Material::None:  r = 0.19f; g = 0.22f; b = 0.24f; break; // roof deck
         }
-        //when the building is selected, warm/brighten the tint so it's highlighted
-        if (buildingSelected) {
-            r = std::min(1.0f, r * 0.6f + 0.45f);
-            g = std::min(1.0f, g * 0.6f + 0.38f);
-            b = std::min(1.0f, b * 0.6f + 0.10f);
+
+        //does this material have a texture loaded?
+        const unsigned int tex = materialTextures[static_cast<int>(t.material)];
+
+        if (tex != 0) {
+            //Textured: bind it and let OpenGL AUTO-GENERATE texture coordinates
+            //from the vertex positions (object-linear texgen)
+            if (buildingSelected) { r = std::min(1.0f, r*0.6f+0.45f);
+                                    g = std::min(1.0f, g*0.6f+0.38f);
+                                    b = std::min(1.0f, b*0.6f+0.10f); glColor3f(r,g,b); }
+            else                  { glColor3f(1.0f, 1.0f, 1.0f); }
+
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            //s follows object X, t follows object Y. Folding the terminal's size
+            //into the planes makes the texture tile ~once per world unit, so the
+            //scale looks consistent across big walls and tiny trim pieces
+            const GLfloat sPlane[4] = {t.size[0], 0.0f, 0.0f, 0.0f};
+            const GLfloat tPlane[4] = {0.0f, t.size[1], 0.0f, 0.0f};
+            glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+            glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+            glTexGenfv(GL_S, GL_OBJECT_PLANE, sPlane);
+            glTexGenfv(GL_T, GL_OBJECT_PLANE, tPlane);
+            glEnable(GL_TEXTURE_GEN_S);
+            glEnable(GL_TEXTURE_GEN_T);
+        } else {
+            //Untextured: keep the existing flat-color look, brightened when selected.
+            if (buildingSelected) {
+                r = std::min(1.0f, r * 0.6f + 0.45f);
+                g = std::min(1.0f, g * 0.6f + 0.38f);
+                b = std::min(1.0f, b * 0.6f + 0.10f);
+            }
+            glColor3f(r, g, b);
         }
-        glColor3f(r, g, b);
 
         //meshes are unit-sized and centered at the origin
         //to place a copy somewhere, temporarily change openGL's "modelview" transform, draw, then undo the change:
@@ -157,6 +244,13 @@ void SceneView::drawGrammarScene() {
         glScalef(t.size[0], t.size[1], t.size[2]);                 //box dimensions
         boxMesh.draw(); // all current terminals are box shapes
         glPopMatrix();
+
+        //turn texturing back off so the next piece (or the grid/highlight) isn't accidentally textured
+        if (tex != 0) {
+            glDisable(GL_TEXTURE_GEN_S);
+            glDisable(GL_TEXTURE_GEN_T);
+            glDisable(GL_TEXTURE_2D);
+        }
     }
 
     //when selected, add a single outline around the whole building
@@ -359,7 +453,37 @@ bool SceneView::rayHitGround(const V3& origin, const V3& dir, V3& outPoint) cons
     return true;
 }
 
-// Snap a ground point to the nearest grid intersection
+// Measure half the building's footprint on the ground (edges to center in x and z planes)
+V3 SceneView::buildingFootprintHalf() const {
+    if (engine.terminals.empty()) return V3(0, 0, 0);
+
+    AABB bounds; // starts "inverted" so the first corner initializes it
+    for (const ShapeNode& t : engine.terminals) {
+        //this method is const, so t is const too. The V3/M33 math operators are
+        //non-const members, so copy size/position/rotation into mutable locals
+        //before using them (same as rayHitTerminal)
+        V3 size = t.size;
+        V3 center = t.position;
+        M33 rot = t.rotation;
+        V3 half = size * 0.5f;
+
+        //visit the 8 corners (every +/- combination of the half extents)
+        for (int cx = -1; cx <= 1; cx += 2)
+        for (int cy = -1; cy <= 1; cy += 2)
+        for (int cz = -1; cz <= 1; cz += 2) {
+            V3 localCorner(cx * half[0], cy * half[1], cz * half[2]);
+            V3 worldCorner = center + rot * localCorner;
+            bounds.AddPoint(worldCorner);
+        }
+    }
+    //half the total width (X) and depth (Z); Y is unused for ground placement
+    const float halfX = (bounds.maxC[0] - bounds.minC[0]) * 0.5f;
+    const float halfZ = (bounds.maxC[2] - bounds.minC[2]) * 0.5f;
+    return V3(halfX, 0.0f, halfZ);
+}
+
+// Snap a ground point to the nearest grid intersection, then confine it so the
+// WHOLE building stays inside the grid.
 V3 SceneView::snapToGrid(const V3& point) const {
     V3 p = point; // local mutable copy
     const float step = grid.spacing;            // one grid cell, the snap unit
@@ -367,9 +491,11 @@ V3 SceneView::snapToGrid(const V3& point) const {
     float sz = std::round(p[2] / step) * step;
 
     // keep the placement inside the grid's extent so you can't drag off the edge
-    const float limit = grid.halfExtent;
-    sx = std::max(-limit, std::min(limit, sx));
-    sz = std::max(-limit, std::min(limit, sz));
+    V3 half = buildingFootprintHalf();
+    const float limitX = std::max(0.0f, grid.halfExtent - half[0]);
+    const float limitZ = std::max(0.0f, grid.halfExtent - half[2]);
+    sx = std::max(-limitX, std::min(limitX, sx));
+    sz = std::max(-limitZ, std::min(limitZ, sz));
 
     return V3(sx, p[1], sz);
 }
