@@ -78,6 +78,7 @@ target_include_directories(shape_grammars PRIVATE
 target_link_libraries(shape_grammars PRIVATE
     fltk::fltk
     fltk::gl
+    fltk::images
     OpenGL::GL
     OpenGL::GLU
 )
