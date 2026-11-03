@@ -65,7 +65,6 @@ add_executable(shape_grammars
     src/scene/V3.cpp
     src/scene/M33.cpp
     src/grammar/GrammarEngine.cpp
-    src/grammar/Rules.cpp
     src/grammar/BuildingRules.cpp
     src/grammar/Operations.cpp
 )

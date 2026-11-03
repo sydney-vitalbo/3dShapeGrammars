@@ -3,7 +3,6 @@
 #include <iostream>
 
 GrammarEngine::GrammarEngine() {
-    rules = Rules();
     terminals = std::vector<ShapeNode>();
 }
 
@@ -22,11 +21,11 @@ void GrammarEngine::GenerateTest() {
     this->root.id = 0;
 
     // override with apartment node for testing
-    building_rules::Parameters params;
+    //building_rules::Parameters params;
     // testing subdivison (splitting height into floors) and repetition (bays within floor)
-    params.floors = 3;
-    params.bays = 3;
-    this->root = building_rules::buildingRoot(params, false);
+    //params.floors = 3;
+    //params.bays = 3;
+    //this->root = building_rules::buildingRoot(params, false);
 
     // Rules determine all bays, windows, and terminal geometry.
     GenerateTree(&this->root);
@@ -45,7 +44,7 @@ void GrammarEngine::GenerateTree(ShapeNode* node) {
     }
 
     // generate grammar subtree for this node
-    rules.Expand(node);
+    building_rules::Expand(node);
 
     // recursively generate grammar tree for each child
     for (ShapeNode& child : node->children) {

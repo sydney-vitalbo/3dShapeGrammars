@@ -13,8 +13,8 @@ The temporary preview and operation implementations have been removed.
 | `src/grammar/Operations.h` | Agreed declarations for the four operations Mridu's engine supplies. |
 
 Mridu owns operation implementations and tree expansion/traversal. Sydney owns
-rendering and interaction. The existing team source files and build configuration
-remain unchanged. `Rules.cpp` still contains the original facade example.
+rendering and interaction. `BuildingRules.cpp` contains the production dispatcher
+and the original facade/window experiments alongside the building productions.
 
 ## Rule definitions
 
@@ -97,18 +97,13 @@ engine, not by these building rules.
 
 ## Integration status
 
-The new rules are deliberately **not linked into the current application yet**.
-The original application continues to build and run its existing facade. To use
-the new rules, Mridu supplies the operation definitions and the team adds those
-definitions plus `BuildingRules.cpp` to the application build.
-
-The returned tree already contains its authored children. The current
-`GrammarEngine::Expand` calls the old `Rules::Expand` and does not traverse these
-stored children, so it must not be used unchanged on this tree. Engine integration
-needs to preserve the hierarchy, assign IDs, and collect world-space terminal
-leaves by walking `children`. Replacing a generated building must discard its old
-leaves. The engine may implement the four interface functions as adapters to its
-own classes; this contract does not prescribe its internal organization.
+`BuildingRules.cpp` and `Operations.cpp` are linked into the application.
+`makeOffice` and `makeApartment` create unexpanded roots.
+`GrammarEngine::GenerateTree` calls `building_rules::Expand` for each nonterminal,
+then recursively visits its children. Each production creates only immediate
+children. `CollectTerminals` walks the completed tree and collects world-space
+terminal copies for rendering. Replacing a generated building must discard its
+old leaves.
 
 For adjacent placement, move the root centers according to their footprint widths
 and keep the same front alignment, floor height, and ground level. Placement is

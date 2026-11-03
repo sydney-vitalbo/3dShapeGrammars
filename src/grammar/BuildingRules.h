@@ -17,6 +17,13 @@ struct Parameters {
 constexpr float bandHeight = 0.12f;
 constexpr float roofHeight = 0.24f;
 
+// Dispatch one production; the engine owns recursive traversal.
+void Expand(ShapeNode* node);
+
+// Original experimental productions, retained for manual testing.
+void Window(ShapeNode* parent);
+void Facade(ShapeNode* parent);
+
 // Helpers
 void validate(const Parameters& p);
 ShapeNode buildingRoot(const Parameters& p, bool apartment);

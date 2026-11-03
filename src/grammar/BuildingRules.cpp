@@ -209,4 +209,46 @@ void expandRoof(ShapeNode* node) {
         terminal(*node, edge, V3(thickness, h, d - 2 * thickness), V3((w - thickness) / 2, 0, 0))
     };
 }
+
+void Expand(ShapeNode* node) {
+    if (!node || node->isTerminal)
+        return;
+
+    switch (node->symbol) {
+    case Symbol::Office:
+    case Symbol::Apartment:
+        expandBuilding(node);
+        break;
+    case Symbol::Floor:
+        expandFloor(node);
+        break;
+    case Symbol::WallRegion:
+        expandWallRegion(node);
+        break;
+    case Symbol::BayGroup:
+        expandBayGroup(node);
+        break;
+    case Symbol::Bay:
+        expandBay(node);
+        break;
+    case Symbol::Entrance:
+        expandEntrance(node);
+        break;
+    case Symbol::Balcony:
+        expandBalcony(node);
+        break;
+    case Symbol::Roof:
+        expandRoof(node);
+        break;
+    case Symbol::Window:
+        expandWindow(node);
+        break;
+    case Symbol::Facade:
+        expandFacade(node);
+        break;
+    default:
+        break;
+    }
+}
+
 } // namespace building_rules
