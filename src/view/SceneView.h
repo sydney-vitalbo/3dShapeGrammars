@@ -4,6 +4,7 @@
 #define VIEW_SCENEVIEW_H
 
 #include <FL/Fl_Gl_Window.H>
+#include <cstddef>
 
 #include "scene/Camera.h"
 #include "scene/Mesh.h"
@@ -31,6 +32,11 @@ public:
     //process a mouse/keyboard event
     //return 1 if consumed
     int handle(int event) override;
+
+    // Single-building bridge for preset/parameter callbacks. The existing engine
+    // expands a fresh root. On error the previous model remains intact; on
+    // success placement, selection, and camera are preserved. Returns leaf count.
+    std::size_t setBuilding(bool apartment, const building_rules::Parameters& parameters);
 
 private:
     //one-time GL setup (lighting, depth test, clear color)

@@ -12,6 +12,7 @@
 #include <limits>    // std::numeric_limits
 #include <utility>   // std::swap
 #include <algorithm> // std::min, std::max
+#include <stdexcept>
 
 //macOS compatibility
 #ifdef __APPLE__
@@ -36,8 +37,38 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     boxMesh = primitives::makeUnitBox();
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
 
-    //ask the engine to generate a building preset
-    engine.GenerateTest();
+    // The UI chooses the initial preset through setBuilding().
+}
+
+std::size_t SceneView::setBuilding(bool apartment, const building_rules::Parameters& parameters) {
+    // Build separately so invalid input never clears the displayed model.
+    GrammarEngine next;
+    next.root = apartment ? building_rules::makeApartment(parameters)
+                          : building_rules::makeOffice(parameters);
+    next.GenerateTree(&next.root);
+    next.CollectTerminals(&next.root, V3(0, 0, 0));
+
+    // A wider/deeper edit must still fit at the existing dragged position.
+    // Test actual rotated corners, including projecting balconies/canopies.
+    // Reject rather than moving the building as a side effect of editing it.
+    for (const ShapeNode& terminal : next.terminals) {
+        V3 center = terminal.position;
+        center = center + buildingOffset;
+        V3 size = terminal.size;
+        M33 rotation = terminal.rotation;
+        for (int x : {-1, 1}) for (int z : {-1, 1}) for (int y : {-1, 1}) {
+            V3 corner = center + rotation * V3(x * size[0] / 2, y * size[1] / 2, z * size[2] / 2);
+            if (std::abs(corner[0]) > grid.halfExtent + 1e-4f ||
+                std::abs(corner[2]) > grid.halfExtent + 1e-4f)
+                throw std::invalid_argument("This size extends beyond the grid. Move the building inward or reduce its width/depth.");
+        }
+    }
+
+    engine.root = std::move(next.root);
+    engine.terminals = std::move(next.terminals);
+    movingBuilding = false;
+    redraw();
+    return engine.terminals.size();
 }
 
 void SceneView::initGLState() { //enabling opengl features
