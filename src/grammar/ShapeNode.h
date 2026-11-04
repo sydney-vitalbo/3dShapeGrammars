@@ -24,6 +24,7 @@ struct BuildingContext {
 
 struct ShapeNode {
     int id = -1;
+    int buildingId = -1; // Owning root, stable when roots grows/reallocates.
     Symbol symbol = Symbol::Slab;
     Material material = Material::None;
 

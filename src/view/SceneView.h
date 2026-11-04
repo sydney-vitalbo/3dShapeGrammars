@@ -5,6 +5,7 @@
 
 #include <FL/Fl_Gl_Window.H>
 #include <cstddef>
+#include <functional>
 
 #include "scene/Camera.h"
 #include "scene/Mesh.h"
@@ -33,10 +34,14 @@ public:
     //return 1 if consumed
     int handle(int event) override;
 
-    // Single-building bridge for preset/parameter callbacks. The existing engine
-    // expands a fresh root. On error the previous model remains intact; on
-    // success placement, selection, and camera are preserved. Returns leaf count.
+    // Presets append a root; parameter edits replace only the selected root.
+    // Invalid input leaves the scene unchanged. Returns this building's leaf count.
+    std::size_t addBuilding(bool apartment, const building_rules::Parameters& parameters);
     std::size_t setBuilding(bool apartment, const building_rules::Parameters& parameters);
+    bool getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const;
+    int selectedBuildingId() const { return selectedRootId; }
+    void selectBuilding(int buildingId);
+    void onSelectionChanged(std::function<void()> callback);
 
 private:
     //one-time GL setup (lighting, depth test, clear color)
@@ -85,7 +90,7 @@ private:
     /**
      * Determine what did the user click?
      * Builds the ray, tests it against every terminal, and keeps the closest hit
-     * Returns true if building was hit...change once buildings have ids
+     * Selects the owning root of the closest terminal. Empty space deselects.
      */
     bool pickComponent(int mouseX, int mouseY);
 
@@ -111,12 +116,6 @@ private:
      */
     V3 snapToGrid(const V3& point) const;
 
-    /**
-     * Half the building's size on the ground (X and Z only)
-     * for keeping the buildings within the ground plane when the user drags them around
-     */
-    V3 buildingFootprintHalf() const;
-
     Camera camera;
     bool glInitialized = false;
     bool texturesLoaded = false;
@@ -125,12 +124,9 @@ private:
     //0 means "no texture" -> use flat color
     unsigned int materialTextures[4] = {0, 0, 0, 0};
 
-    //selection state (just a flag right now...change once buildings have ids)
-    bool buildingSelected = false;
-
-    //building placement
-    //applies this offset when drawing (dragging just updates this)
-    V3 buildingOffset = V3(0, 0, 0);
+    // Stable owner ID rather than a pointer into the roots vector.
+    int selectedRootId = -1;
+    std::function<void()> selectionChanged;
 
     //while a drag is in progress these track the move:
     bool movingBuilding = false; // true between grabbing and releasing the building

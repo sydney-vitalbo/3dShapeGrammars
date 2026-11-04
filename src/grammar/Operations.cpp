@@ -101,6 +101,7 @@ void transform(ShapeNode& node, V3 translation, M33 rotation) {
 ShapeNode childOf(const ShapeNode& parent, Symbol symbol, V3 size,
                   V3 position) {
     ShapeNode child;
+    child.buildingId = parent.buildingId;
     child.symbol = symbol;
     child.size = size;
     child.position = position;
