@@ -18,6 +18,7 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace {
 // A quiet, one-pixel border for fields, without the default beveled edges.
@@ -48,18 +49,16 @@ double readNumber(const Fl_Input& input, const char* name,
     return value;
 }
 
-// UI state for the current building. Building IDs/multiple instances come later.
-// The callbacks only select parameters; SceneView delegates expansion to the engine.
+// Parameter fields follow the selected root in the shared scene engine.
 struct BuildingControls {
     sg::SceneView* view;
-    Fl_Button* office;
-    Fl_Button* apartment;
     Fl_Box* heading;
     Fl_Int_Input* floors;
     Fl_Int_Input* bays;
     Fl_Float_Input* width;
     Fl_Float_Input* depth;
     Fl_Check_Button* balconies;
+    Fl_Button* applyButton;
     Fl_Box* status;
     bool apartmentActive = false;
 
@@ -69,14 +68,33 @@ struct BuildingControls {
         status->redraw();
     }
 
-    void updatePresetButtons() {
-        office->value(!apartmentActive);
-        apartment->value(apartmentActive);
-        for (Fl_Button* button : {office, apartment}) {
-            button->color(button->value() ? fl_rgb_color(48, 52, 59) : FL_WHITE);
-            button->labelcolor(button->value() ? FL_WHITE : fl_rgb_color(65, 69, 76));
-            button->redraw();
+    void syncSelection() {
+        building_rules::Parameters parameters;
+        const bool selected = view->getSelectedBuilding(apartmentActive, parameters);
+        Fl_Widget* fields[] = {floors, bays, width, depth, balconies, applyButton};
+        for (Fl_Widget* field : fields) {
+            if (selected) field->activate(); else field->deactivate();
         }
+        if (!selected) {
+            heading->copy_label("Select a building");
+            message("Click a building to edit it, or add a preset using the buttons above.");
+            return;
+        }
+        auto setNumber = [](Fl_Input* input, double value) {
+            std::ostringstream text;
+            text << value;
+            input->value(text.str().c_str());
+        };
+        setNumber(floors, parameters.floors);
+        setNumber(bays, parameters.bays);
+        setNumber(width, parameters.width);
+        setNumber(depth, parameters.depth);
+        balconies->value(parameters.balconies);
+        if (!apartmentActive) balconies->deactivate();
+        const std::string name = std::string(apartmentActive ? "Apartment #" : "Office #")
+            + std::to_string(view->selectedBuildingId()+1);
+        heading->copy_label((name + " parameters").c_str());
+        message(name + " selected.\nEdit fields, then Apply changes.");
     }
 
     void loadPreset(bool isApartment) {
@@ -88,19 +106,12 @@ struct BuildingControls {
         parameters.floorHeight = 1.5f;
         parameters.balconies = isApartment;
         try {
-            const auto count = view->setBuilding(isApartment, parameters);
-            apartmentActive = isApartment;
-            floors->value("3"); bays->value("3");
-            width->value("6"); depth->value("3");
-            balconies->value(isApartment);
-            if (isApartment) balconies->activate(); else balconies->deactivate();
-            heading->copy_label(isApartment ? "Apartment parameters" : "Office parameters");
+            const auto count = view->addBuilding(isApartment, parameters);
             message(std::string(isApartment ? "Apartment" : "Office") +
-                    " preset loaded.\n" + std::to_string(count) + " pieces.\nEdit fields, then Apply changes.");
+                    " added.\n" + std::to_string(count) + " pieces.\nClick any building to edit it.");
         } catch (const std::exception& error) {
             message(error.what(), true);
         }
-        updatePresetButtons();
     }
 
     void apply() {
@@ -154,7 +165,7 @@ int main(int argc, char** argv) {
     title->labelfont(FL_HELVETICA_BOLD);
     title->labelsize(17);
     title->labelcolor(ink);
-    auto* subtitle = new Fl_Box(24, 33, 400, 17, "Choose a building. Adjust its parameters. Explore in 3D.");
+    auto* subtitle = new Fl_Box(24, 33, 400, 17, "Add buildings. Select one to edit. Explore in 3D.");
     subtitle->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
     subtitle->labelsize(12);
     subtitle->labelcolor(muted);
@@ -168,23 +179,24 @@ int main(int argc, char** argv) {
     panel->box(FL_FLAT_BOX);
     panel->color(paper);
     // Keep preset selection and editing together in a fixed-width sidebar.
-    auto* presetLabel = new Fl_Box(left, 80, 252, 18, "BUILDING PRESET");
+    auto* presetLabel = new Fl_Box(left, 80, 252, 18, "ADD BUILDING");
     presetLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
     presetLabel->labelfont(FL_HELVETICA_BOLD);
     presetLabel->labelsize(11);
     presetLabel->labelcolor(muted);
-    auto* office = new Fl_Button(left, 106, 122, 36, "Office");
-    auto* apartment = new Fl_Button(left + 130, 106, 122, 36, "Apartment");
+    auto* office = new Fl_Button(left, 106, 122, 36, "Add Office");
+    auto* apartment = new Fl_Button(left + 130, 106, 122, 36, "Add Apartment");
     for (Fl_Button* button : {office, apartment}) {
-        button->type(FL_RADIO_BUTTON);
+        button->color(FL_WHITE);
+        button->labelcolor(ink);
         button->box(FL_FLAT_BOX);
         button->down_box(FL_FLAT_BOX);
         button->selection_color(ink);
         button->labelfont(FL_HELVETICA_BOLD);
         button->labelsize(13);
     }
-    office->tooltip("Replace the current model with the default office preset.");
-    apartment->tooltip("Replace the current model with the default apartment preset.");
+    office->tooltip("Add an office building to the scene.");
+    apartment->tooltip("Add an apartment building to the scene.");
     auto* heading = new Fl_Box(left, 168, 252, 26, "Office parameters");
     heading->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
     heading->labelfont(FL_HELVETICA_BOLD);
@@ -242,12 +254,13 @@ int main(int argc, char** argv) {
     panel->resizable(nullptr);
     panel->end();
 
-    BuildingControls controls{view, office, apartment, heading, floors, bays,
-                              width, depth, balconies, status};
+    BuildingControls controls{view, heading, floors, bays,
+                              width, depth, balconies, apply, status};
     office->callback(BuildingControls::officeClicked, &controls);
     apartment->callback(BuildingControls::apartmentClicked, &controls);
     apply->callback(BuildingControls::applyClicked, &controls);
-    controls.loadPreset(false);
+    view->onSelectionChanged([&controls] { controls.syncSelection(); });
+    controls.syncSelection();
 
     window.end();
     window.resizable(view);

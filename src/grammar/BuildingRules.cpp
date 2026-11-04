@@ -9,6 +9,28 @@ using namespace grammar_ops;
 
 namespace building_rules {
 
+// Preserve a box's exterior using independently disableable wall pieces.
+// These are immediate terminal children; no rule expansion happens here.
+static std::vector<ShapeNode> shell(const ShapeNode& parent, ShapeNode scope,
+                                     Material material, bool groundBottom = false) {
+    const float w = scope.size[0], h = scope.size[1], d = scope.size[2];
+    const float t = std::min(0.1f, std::min(w, std::min(h,d))*0.25f);
+    std::vector<ShapeNode> pieces{
+        terminal(parent,material,V3(w,h,t),scope.position+V3(0,0,(d-t)/2)),
+        terminal(parent,material,V3(w,h,t),scope.position+V3(0,0,-(d-t)/2)),
+        terminal(parent,material,V3(t,h,d-2*t),scope.position+V3((w-t)/2,0,0)),
+        terminal(parent,material,V3(t,h,d-2*t),scope.position+V3(-(w-t)/2,0,0)),
+        terminal(parent,material,V3(w-2*t,t,d-2*t),scope.position+V3(0,(h-t)/2,0)),
+        terminal(parent,material,V3(w-2*t,t,d-2*t),scope.position+V3(0,-(h-t)/2,0))
+    };
+    pieces[0].exteriorFace = BuildingFace::Front;
+    pieces[1].exteriorFace = BuildingFace::Back;
+    pieces[2].exteriorFace = BuildingFace::Right;
+    pieces[3].exteriorFace = BuildingFace::Left;
+    if (groundBottom) pieces[5].exteriorFace = BuildingFace::Bottom;
+    return pieces;
+}
+
 void validate(const Parameters& p) {
     if (p.floors < 1 || p.floors > 12 || p.bays < 2 || p.bays > 8 ||
         !std::isfinite(p.width) || p.width < 4 || p.width > 12 ||
@@ -55,11 +77,12 @@ void expandBuilding(ShapeNode* node) {
         children[i].position = regions[0].position + children[i].position;
     }
     regions[1].symbol = Symbol::Roof;
+    regions[1].exteriorFace = BuildingFace::Top;
     children.push_back(std::move(regions[1]));
     node->children = std::move(children);
 }
 
-// Floor -> solid wall body + front/rear WallRegions + terminal FloorBand.
+// Floor -> wall-body shell + front/rear WallRegions + floor-band shell.
 void expandFloor(ShapeNode* node) {
     auto regions = subdivide(*node, Axis::Y,
         {Split::relative(1), Split::fixed(bandHeight)});
@@ -72,15 +95,17 @@ void expandFloor(ShapeNode* node) {
         wall.position + V3(0, 0, -wall.size[2] / 2));
     front.building.streetFacing = true;
     rear.building.streetFacing = false;
+    front.exteriorFace = BuildingFace::Front;
+    rear.exteriorFace = BuildingFace::Back;
     if (!rear.building.streetFacing)
         transform(rear, V3(0, 0, 0), M33(V3(0, 1, 0), 180.0f));
 
-    regions[1].isTerminal = true;
-    regions[1].material = node->building.apartment ? Material::Stone : Material::Wood;
-    node->children = {
-        terminal(*node, Material::Stone, wall.size, wall.position),
-        std::move(front), std::move(rear), std::move(regions[1])
-    };
+    auto children = shell(*node, wall, Material::Stone, node->building.groundFloor);
+    children.push_back(std::move(front));
+    children.push_back(std::move(rear));
+    auto band = shell(*node, regions[1], node->building.apartment ? Material::Stone : Material::Wood);
+    for (ShapeNode& piece : band) children.push_back(std::move(piece));
+    node->children = std::move(children);
 }
 
 // Each WallRegion is already placed/oriented at one wall. Its local +Z points
@@ -198,16 +223,21 @@ void expandRoof(ShapeNode* node) {
     constexpr float thickness = 0.10f;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
     const Material edge = node->building.apartment ? Material::Wood : Material::Stone;
-    // Inset the deck on all four sides. Front/rear parapets span the width;
-    // side parapets fit between them, so neither corners nor deck faces overlap.
+    // The deck fills the footprint and parapets sit on it. Removing an internal
+    // parapet during joining therefore leaves a continuous roof surface.
+    const float deckHeight = 0.25f*h, parapetHeight = h-deckHeight;
     node->children = {
-        terminal(*node, Material::None, V3(w - 2 * thickness, 0.25f * h, d - 2 * thickness),
+        terminal(*node, Material::None, V3(w, deckHeight, d),
             V3(0, -0.375f * h, 0)),
-        terminal(*node, edge, V3(w, h, thickness), V3(0, 0, -(d - thickness) / 2)),
-        terminal(*node, edge, V3(w, h, thickness), V3(0, 0, (d - thickness) / 2)),
-        terminal(*node, edge, V3(thickness, h, d - 2 * thickness), V3(-(w - thickness) / 2, 0, 0)),
-        terminal(*node, edge, V3(thickness, h, d - 2 * thickness), V3((w - thickness) / 2, 0, 0))
+        terminal(*node, edge, V3(w, parapetHeight, thickness), V3(0, deckHeight/2, -(d-thickness)/2)),
+        terminal(*node, edge, V3(w, parapetHeight, thickness), V3(0, deckHeight/2, (d-thickness)/2)),
+        terminal(*node, edge, V3(thickness, parapetHeight, d-2*thickness), V3(-(w-thickness)/2, deckHeight/2, 0)),
+        terminal(*node, edge, V3(thickness, parapetHeight, d-2*thickness), V3((w-thickness)/2, deckHeight/2, 0))
     };
+    node->children[1].exteriorFace = BuildingFace::Back;
+    node->children[2].exteriorFace = BuildingFace::Front;
+    node->children[3].exteriorFace = BuildingFace::Left;
+    node->children[4].exteriorFace = BuildingFace::Right;
 }
 
 void Expand(ShapeNode* node) {
