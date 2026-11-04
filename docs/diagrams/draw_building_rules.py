@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 matplotlib.rcParams["svg.fonttype"] = "none"
+matplotlib.rcParams["svg.hashsalt"] = "building-rules-hierarchy"
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Polygon, Rectangle
 
@@ -16,10 +17,10 @@ BLUE, BLUE_BG = "#2c66ad", "#e9f1fc"
 AMBER, AMBER_BG = "#a86716", "#fff2db"
 GREEN, GREEN_BG = "#28785b", "#e9f7ef"
 PURPLE = "#7852a1"
-fig, ax = plt.subplots(figsize=(26, 18))
+fig, ax = plt.subplots(figsize=(26, 23))
 fig.patch.set_facecolor(BG)
 ax.set_facecolor(BG)
-ax.set(xlim=(0, 26), ylim=(0, 18))
+ax.set(xlim=(0, 26), ylim=(-5, 18))
 ax.set_aspect("equal")
 ax.axis("off")
 plt.subplots_adjust(left=0.015, right=0.985, top=0.985, bottom=0.015)
@@ -44,10 +45,10 @@ def card(x, y, w, h, title, subtitle="", terminal=False, optional=False, badge=N
     return (x, y, w, h)
 
 
-def edge(start, end, label=None, label_at=None, color=BLUE, style="-", bend=0):
+def edge(start, end, label=None, label_at=None, color=BLUE, style="-", bend=0, zorder=1):
     ax.add_patch(FancyArrowPatch(start, end, arrowstyle="-|>", mutation_scale=17,
         linewidth=1.5, color=color, linestyle=style,
-        connectionstyle=f"arc3,rad={bend}", zorder=1))
+        connectionstyle=f"arc3,rad={bend}", zorder=zorder))
     if label and label_at:
         text(*label_at, label, 12.5, color, ha="center", zorder=5,
              bbox=dict(facecolor=BG, edgecolor="none", pad=2))
@@ -116,26 +117,27 @@ def panel(x, y, w, h, heading, subtitle):
 text(.5,17.55,"BUILDING RULES",33,weight="bold")
 text(.52,17.02,"Current production hierarchy  /  BuildingRules.cpp",16,MUTED)
 text(15.9,17.48,"BLUE  nonterminal",13,BLUE,ha="right",weight="bold")
-text(15.9,17.08,"AMBER  terminal Slab",13,AMBER,ha="right",weight="bold")
+text(15.9,17.08,"AMBER  terminal Slabs",13,AMBER,ha="right",weight="bold")
 text(15.9,16.68,"GREEN  optional nonterminal",12,GREEN,ha="right",weight="bold")
 
 # Main hierarchy. Repeated type references indicate separate node instances.
 root = card(7.7,15.7,8.4,1.2,"Office  /  Apartment",
     "makeOffice / makeApartment → unexpanded root")
+text(7.7,16.47,"Roots only: rootJoin = structural AABB + overlapMask",12.5,PURPLE,ha="center")
 floor = card(5.7,13.72,7.1,1.05,"Floor × floors","expandBuilding: split Y + repeat Y")
-roof = card(13.25,13.72,3.3,1.05,"Roof","height = 0.24",badge="A")
+roof = card(13.25,13.72,3.3,1.05,"Roof","height 0.24 · Top tag",badge="A")
 bus((7.7,15.08),[(5.7,14.27),(13.25,14.27)],14.72)
 text(.55,15.62,"Office",14,BLUE,weight="bold")
 text(.55,15.19,"Wide windows\nWood frames",12.5,MUTED,linespacing=1.5)
 text(12.45,15.9,"Apartment",14,GREEN,weight="bold")
 text(12.45,15.43,"Smaller windows · Stone frames\nOptional front balconies",12.5,MUTED,linespacing=1.5)
 
-body = card(1.98,11.55,3.1,1.15,"Wall body","Stone · 1 box",terminal=True)
-front = card(5.57,11.55,3.35,1.15,"WallRegion: front","+depth / 2 · Y rotation 0°")
-rear = card(9.25,11.55,3.35,1.15,"WallRegion: rear","−depth / 2 · Y rotation 180°")
-band = card(13.05,11.55,3.5,1.15,"Floor band","height 0.12 · 1 box\nOffice Wood / Apartment Stone",terminal=True)
+body = card(1.98,11.55,3.1,1.15,"Wall-body Slabs ×6","Stone · shell() helper",terminal=True,badge="D")
+front = card(5.57,11.55,3.35,1.15,"WallRegion: front","+depth / 2 · Y rotation 0°\nexteriorFace = Front")
+rear = card(9.25,11.55,3.35,1.15,"WallRegion: rear","−depth / 2 · Y rotation 180°\nexteriorFace = Back")
+band = card(13.05,11.55,3.5,1.15,"Band Slabs ×6","height 0.12\nOffice Wood / Apartment Stone",terminal=True,badge="D")
 bus((5.7,13.18),[(1.98,12.15),(5.57,12.15),(9.25,12.15),(13.05,12.15)],12.67)
-text(2.1,12.87,"expandFloor: split Y into wall height + band",12.5,PURPLE)
+text(2.1,12.87,"expandFloor: 6 body Slabs + 2 WallRegions + 6 band Slabs = 14 direct children",12.5,PURPLE)
 
 facade = card(7.45,9.55,6.1,1.05,"Facade","expandWallRegion: 1 facade per wall region")
 edge((5.57,10.96),(6.25,10.1))
@@ -176,18 +178,18 @@ text(7.8,2.48,"Entrance reuses Window\nwith door proportions",12.5,MUTED,ha="cen
 text(3.5,2.48,"Entrance width:\nOffice 1.5 · Apartment 1.0",12.5,MUTED,ha="center",linespacing=1.5)
 
 # Three terminal-detail panels with code-faithful sketches.
-panel(16.4,12.15,9.1,4.25,"A  ROOF → 5 Slab terminals","expandRoof · inset deck + four parapet walls")
+panel(16.4,12.15,9.1,4.25,"A  ROOF → 5 Slab terminals","expandRoof · full-footprint deck + four parapet walls")
 # Roof tray: separate deck and four parapets, seen from above.
 roof_origin = (18.45,13.55)
-iso_block((0,0,.85),(2.8,.35,.1),roof_origin)
-iso_block((-1.35,0,0),(.1,.35,1.6),roof_origin)
-iso_block((0,-.15,0),(2.6,.1,1.6),roof_origin,AMBER,"#fff1d7")
-iso_block((1.35,0,0),(.1,.35,1.6),roof_origin)
-iso_block((0,0,-.85),(2.8,.35,.1),roof_origin)
-text(20.65,14.65,"1 × roof deck",16,AMBER,weight="bold",zorder=5)
-text(20.65,14.08,"4 × parapet walls",16,AMBER,weight="bold",zorder=5)
+iso_block((0,-.15,0),(2.8,.1,1.8),roof_origin,AMBER,"#fff1d7")
+iso_block((0,.05,.85),(2.8,.3,.1),roof_origin)
+iso_block((-1.35,.05,0),(.1,.3,1.6),roof_origin)
+iso_block((1.35,.05,0),(.1,.3,1.6),roof_origin)
+iso_block((0,.05,-.85),(2.8,.3,.1),roof_origin)
+text(20.65,14.65,"1 × full-footprint deck",15,AMBER,weight="bold",zorder=5)
+text(20.65,14.08,"4 × tagged parapet walls",15,AMBER,weight="bold",zorder=5)
 text(20.65,13.35,"Deck: Material::None\nEdges: Office Stone\n             Apartment Wood",13,MUTED,linespacing=1.55,zorder=5)
-text(16.75,12.54,"All five children are terminal boxes.",12.5,MUTED,zorder=5)
+text(16.75,12.54,"Top mask hides roof; side masks hide matching parapets.",12.5,MUTED,zorder=5)
 
 panel(16.4,6.9,9.1,4.85,"B  WINDOW → 7 Slab terminals","expandWindow · also used for entrance doors")
 window_sketch(17.0,8.18,2.55,2.18)
@@ -213,14 +215,47 @@ text(16.75,2.03,"No balcony on the rear or ground-floor facade.",12.5,MUTED,zord
 # Footer explains the engine/rule boundary and coordinate convention.
 ax.plot([.5,25.5],[1.17,1.17],color="#cbd6e3",lw=1)
 text(.55,.77,"ENGINE",12.5,PURPLE,weight="bold")
-text(1.65,.77,"GenerateTree → Expand(node) → create immediate children → recurse",13,INK)
+text(1.65,.77,"GenerateTree → Expand(node) → immediate children → recurse.  RebuildTerminals → UpdateJoins → collect visible leaves.",12.5,INK)
 text(.55,.31,"POSES",12.5,PURPLE,weight="bold")
-text(1.65,.31,"Tree: local position + rotation, absolute size.  CollectTerminals: compose world poses.  Every Slab draws a scaled unit box.",12.5,MUTED)
+text(1.65,.31,"Tree: local position + rotation, absolute size.  disabled subtrees are skipped by visible collection; full-geometry previews keep grid bounds stable.",12.5,MUTED)
 text(25.45,17.55,"RULE MAP",12,MUTED,ha="right",weight="bold")
-text(25.45,17.10,"Based on current source · 2026-11-03",12,MUTED,ha="right")
+text(25.45,17.10,"Based on current source · 2026-11-04",12,MUTED,ha="right")
+
+# Shell groups are helper output, not new nonterminal nodes in the tree.
+panel(.5,-4.65,11.7,4.15,"D  BODY + BAND: two six-piece shells",
+      "Each shell emits 6 direct terminal children of Floor")
+shell_origin = (2.75,-2.76)
+iso_block((0,0,.97),(2.4,1.55,.1),shell_origin,AMBER,"#fff2db")
+iso_block((-1.38,0,0),(.1,1.55,1.5),shell_origin,AMBER,"#fff2db")
+iso_block((0,1.03,0),(2.2,.1,1.5),shell_origin,PURPLE,"#f1ebf7")
+iso_block((0,-1.03,0),(2.2,.1,1.5),shell_origin,PURPLE,"#f1ebf7")
+iso_block((1.38,0,0),(.1,1.55,1.5),shell_origin,AMBER,"#fff2db")
+iso_block((0,0,-.97),(2.4,1.55,.1),shell_origin,AMBER,"#fff2db")
+text(5.1,-1.78,"4 side pieces: Front / Back / Left / Right",13,AMBER,weight="bold",zorder=5)
+text(5.1,-2.32,"2 caps: top + bottom",13,PURPLE,weight="bold",zorder=5)
+text(5.1,-2.91,"Sides carry exteriorFace tags.\nGround-floor body bottom carries Bottom.\nOther caps remain internal floor surfaces.",12.5,MUTED,
+     linespacing=1.65,zorder=5)
+text(5.1,-4.03,"shell() is a helper, not another tree level.",12.5,MUTED,zorder=5)
+
+panel(12.65,-4.65,12.85,4.15,"E  LIVE JOINING → root masks → disabled nodes",
+      "Add / edit / snapped MoveRoot → RebuildTerminals()")
+card(14.6,-1.97,3.25,.82,"Root AABBs","Check all root pairs")
+card(18.8,-1.97,3.7,.82,"Root face masks","Union all contacts")
+card(23.1,-1.97,3.55,.82,"Propagate","Tag + rotation → disabled")
+edge((16.28,-1.97),(16.92,-1.97),color=PURPLE,zorder=4)
+edge((20.72,-1.97),(21.27,-1.97),color=PURPLE,zorder=4)
+text(13.0,-2.96,"Changed mask / tree / orientation → update affected subtree.\nDisabled parent → disabled descendants.\nSeparate buildings → clear bits and restore components.",12.5,MUTED,
+     linespacing=1.7,zorder=5)
+card(23.1,-3.28,3.55,.82,"Visible terminals","Render + picking")
+edge((23.1,-2.42),(23.1,-2.83),color=PURPLE,zorder=4)
+text(13.0,-4.12,"Coarse whole-face removal; partial contact hides a whole side. Edge/corner contact is ignored.",11.5,MUTED,zorder=5)
 
 fig.savefig(OUT/"building-rules-hierarchy.png",dpi=180,facecolor=BG)
-fig.savefig(OUT/"building-rules-hierarchy.svg",facecolor=BG)
+svg_path = OUT/"building-rules-hierarchy.svg"
+fig.savefig(svg_path,facecolor=BG,metadata={"Date":None})
+# Matplotlib wraps path data with trailing spaces; keep generated diffs clean.
+svg_path.write_text("\n".join(line.rstrip() for line in svg_path.read_text(encoding="utf-8").splitlines())+"\n",
+                    encoding="utf-8")
 plt.close(fig)
 print(OUT/"building-rules-hierarchy.png")
 print(OUT/"building-rules-hierarchy.svg")

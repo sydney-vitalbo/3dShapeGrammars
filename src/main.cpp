@@ -196,7 +196,8 @@ int main(int argc, char** argv) {
     apply->callback(BuildingControls::applyClicked, &controls);
     view->onSelectionChanged([&controls] { controls.syncSelection(); });
     controls.syncSelection();
-    controls.loadPreset(false);
+    // add a default office building on startup
+    //controls.loadPreset(false);
 
     window.end();
     window.resizable(view);

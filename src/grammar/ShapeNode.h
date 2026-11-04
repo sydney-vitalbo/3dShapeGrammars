@@ -2,6 +2,7 @@
 #include "V3.h"
 #include "M33.h"
 #include <vector>
+#include <optional>
 
 enum class Symbol {
     Facade, Window, Slab,
@@ -10,6 +11,19 @@ enum class Symbol {
 
 enum class Material {
     None, Wood, Glass, Stone,
+};
+
+// Root masks use world AABB directions. Component tags use building-local axes.
+enum class BuildingFace : unsigned {
+    None = 0, Right = 1, Left = 2, Top = 4, Bottom = 8, Front = 16, Back = 32
+};
+constexpr unsigned allBuildingFaces = 63;
+
+struct RootJoinState {
+    AABB bounds; // Structural root box in world space, excluding decorations.
+    unsigned overlapMask = 0;
+    M33 lastRotation = M33(1.0f);
+    bool visibilityDirty = true;
 };
 
 // Context inherited by a building rule's children for deferred expansion.
@@ -33,6 +47,11 @@ struct ShapeNode {
     V3 size = V3(1, 1, 1); // Absolute dimensions; never multiplied by parent size.
 
     BuildingContext building;
+
+    // Populated only for scene roots, never inherited by child nodes.
+    std::optional<RootJoinState> rootJoin;
+    BuildingFace exteriorFace = BuildingFace::None;
+    bool disabled = false; // Derived from root joining; reset on separation.
 
     bool isTerminal = false;
     std::vector<ShapeNode> children;

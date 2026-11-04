@@ -73,7 +73,7 @@ std::size_t SceneView::addBuilding(bool apartment, const building_rules::Paramet
     // before starting another row. Existing buildings keep their placement.
     std::vector<AABB> occupied;
     for (const ShapeNode& existing : engine.roots)
-        occupied.push_back(terminalBounds(engine.terminals, existing.buildingId));
+        occupied.push_back(terminalBounds(engine.TerminalsForRoot(existing)));
     std::vector<float> coordinates{0};
     const int cells = static_cast<int>(std::floor(grid.halfExtent / grid.spacing));
     for (int i = 1; i <= cells; ++i) {
@@ -378,25 +378,11 @@ void SceneView::drawGrammarScene() {
 
 //draw highlight box around the whole selected building
 void SceneView::drawSelectionHighlight() {
-    if (selectedRootId < 0 || engine.terminals.empty()) return;
-
-    //1) find the building's bounding box: the min and max x/y/z
-    //   across the 8 corners of every terminal. Terminals can be rotated, so
-    //   rotate each corner into world space before growing the bounds
-    AABB bounds; // starts "inverted" (min=+inf, max=-inf) so the first point sets it
-    for (ShapeNode& t : engine.terminals) {
-        if (t.buildingId != selectedRootId) continue;
-        V3 half = t.size * 0.5f;
-        //the 8 corners of a box are every +/- combination of the half extents
-        for (int cx = -1; cx <= 1; cx += 2)
-        for (int cy = -1; cy <= 1; cy += 2)
-        for (int cz = -1; cz <= 1; cz += 2) {
-            V3 localCorner(cx * half[0], cy * half[1], cz * half[2]);
-            //world corner = center + rotation * localCorner
-            V3 worldCorner = t.position + t.rotation * localCorner;
-            bounds.AddPoint(worldCorner);
-        }
-    }
+    const ShapeNode* root = engine.FindRoot(selectedRootId);
+    if (!root) return;
+    // Full geometry keeps the selected outline stable even when a join hides
+    // a whole side (or another building completely contains this root).
+    AABB bounds = terminalBounds(engine.TerminalsForRoot(*root));
 
     //2) pad the box slightly so the outline floats just outside
     const float pad = 0.03f;
@@ -577,7 +563,7 @@ V3 SceneView::snapToGrid(const V3& point) const {
     float sz = std::round(p[2] / step) * step;
 
     // keep the placement inside the grid's extent so you can't drag off the edge
-    AABB bounds = terminalBounds(engine.terminals, selectedRootId);
+    AABB bounds = terminalBounds(engine.TerminalsForRoot(*root));
     V3 rootPosition = root->position;
     // Use asymmetric bounds (balconies/canopies project forward) and round the
     // allowed interval inward so clamping also preserves grid alignment.

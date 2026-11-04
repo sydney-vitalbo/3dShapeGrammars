@@ -26,8 +26,9 @@ public:
     void ReplaceRoot(int buildingId, ShapeNode root);
     void MoveRoot(int buildingId, V3 position);
     const ShapeNode* FindRoot(int buildingId) const;
+    // Refresh root bounds/contact masks, propagate visibility, then collect.
     void RebuildTerminals();
-    // Preview a tree without changing the scene's terminal cache.
+    // Preview full geometry, including disabled nodes, for stable grid bounds.
     std::vector<ShapeNode> TerminalsForRoot(const ShapeNode& root) const;
 
     void GenerateTest();
@@ -40,5 +41,9 @@ private:
     int nextBuildingId = 0;
     static void AssignBuildingId(ShapeNode& node, int buildingId);
     static void CollectInto(const ShapeNode* node, V3 parentPose, M33 parentRotation,
-                            int buildingId, std::vector<ShapeNode>& output);
+                            int buildingId, std::vector<ShapeNode>& output,
+                            bool includeDisabled = false);
+    void UpdateJoins();
+    static void ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
+                              bool parentDisabled = false);
 };
