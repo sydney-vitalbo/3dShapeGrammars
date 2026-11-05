@@ -61,6 +61,7 @@ add_executable(shape_grammars
     src/view/TextureSet.cpp
     src/view/Picking.cpp
     src/view/DerivationTreeView.cpp
+    src/view/ControlPanel.cpp
     src/scene/Camera.cpp
     src/scene/Mesh.cpp
     src/scene/Primitives.cpp
