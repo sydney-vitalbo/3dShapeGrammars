@@ -4,15 +4,13 @@
 #define VIEW_SCENEVIEW_H
 
 #include <FL/Fl_Gl_Window.H>
-#include <cstddef>
-#include <functional>
 
 #include "scene/Camera.h"
 #include "scene/Mesh.h"
 #include "scene/Primitives.h"
+#include "scene/SceneController.h" //the scene model this view renders + edits
 #include "grammar/GrammarEngine.h" //mridu's engine + ShapeNode
 #include "grammar/ShapeNode.h" //mridu's ShapeNode
-#include "grammar/BuildingRules.h" //borna's building rules
 
 namespace sg {
 
@@ -22,10 +20,18 @@ namespace sg {
  *   - all interaction happens in handle()
  *   - state changes call redraw() to request a repaint
  * (https://www.fltk.org/doc-1.4/opengl.html)
+ *
+ * This class is ONLY rendering + input. It does not own the
+ * buildings: it holds a reference to a SceneController (the scene model) and
+ * asks it what to draw, what is selected, and where a dragged building may go.
+ * Adding/editing/deleting buildings lives on the controller, not here.
  */
 class SceneView : public Fl_Gl_Window {
 public:
-    SceneView(int x, int y, int w, int h, const char* label = nullptr);
+    // The view renders and edits the scene held by `controller`, which must
+    // outlive the view (both are created in main() for the app's lifetime).
+    SceneView(SceneController& controller, int x, int y, int w, int h,
+              const char* label = nullptr);
 
     //render one frame...called whenever the window needs repainting
     void draw() override;
@@ -33,16 +39,6 @@ public:
     //process a mouse/keyboard event
     //return 1 if consumed
     int handle(int event) override;
-
-    // Presets append a root; parameter edits replace only the selected root.
-    // Invalid input leaves the scene unchanged. Returns this building's leaf count.
-    std::size_t addBuilding(bool apartment, const building_rules::Parameters& parameters);
-    std::size_t setBuilding(bool apartment, const building_rules::Parameters& parameters);
-    bool getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const;
-    int selectedBuildingId() const { return selectedRootId; }
-    void selectBuilding(int buildingId);
-    bool deleteSelectedBuilding();
-    void onSelectionChanged(std::function<void()> callback);
 
 private:
     //one-time GL setup (lighting, depth test, clear color)
@@ -111,11 +107,9 @@ private:
      */
     bool rayHitGround(const V3& origin, const V3& dir, V3& outPoint) const;
 
-    /**
-     * Snap a world point to the nearest grid intersection on the ground
-     * Only X and Z are snapped
-     */
-    V3 snapToGrid(const V3& point) const;
+    // The scene model this view renders and edits. Owned by main(), not by us.
+    // Selection, placement, and the grid/engine all live here now.
+    SceneController& controller;
 
     Camera camera;
     bool glInitialized = false;
@@ -124,10 +118,6 @@ private:
     // One GL texture id per material (Material enum values index this array: None=0, Wood=1, Glass=2, Stone=3)
     //0 means "no texture" -> use flat color
     unsigned int materialTextures[4] = {0, 0, 0, 0};
-
-    // Stable owner ID rather than a pointer into the roots vector.
-    int selectedRootId = -1;
-    std::function<void()> selectionChanged;
 
     //while a drag is in progress these track the move:
     bool movingBuilding = false; // true between grabbing and releasing the building
@@ -140,11 +130,6 @@ private:
     // each instance will be scaled via the modelview matrix
     Mesh boxMesh;
     Mesh cylinderMesh;
-
-    primitives::GroundGrid grid;
-
-    //generate a building once and render its terminals every frame (then regenerate when parameters change)
-    GrammarEngine engine;
 
     //mouse vars for rotate/zoom controls
     int lastMouseX = 0;

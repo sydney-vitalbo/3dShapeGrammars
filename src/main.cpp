@@ -10,6 +10,7 @@
 #include <FL/fl_draw.H>
 
 #include "view/SceneView.h"
+#include "scene/SceneController.h"
 
 #include <cerrno>
 #include <cctype>
@@ -49,9 +50,11 @@ double readNumber(const Fl_Input& input, const char* name,
     return value;
 }
 
-// Parameter fields follow the selected root in the shared scene engine.
+// Parameter fields follow the selected root in the shared scene controller.
+// Add/edit/delete and selection all go through the controller now; the view is
+// only responsible for rendering + mouse interaction.
 struct BuildingControls {
-    sg::SceneView* view;
+    sg::SceneController* scene;
     Fl_Box* heading;
     Fl_Int_Input* floors;
     Fl_Int_Input* bays;
@@ -71,7 +74,7 @@ struct BuildingControls {
 
     void syncSelection() {
         building_rules::Parameters parameters;
-        const bool selected = view->getSelectedBuilding(apartmentActive, parameters);
+        const bool selected = scene->getSelectedBuilding(apartmentActive, parameters);
         Fl_Widget* fields[] = {floors, bays, width, depth, balconies, applyButton, deleteButton};
         for (Fl_Widget* field : fields) {
             if (selected) field->activate(); else field->deactivate();
@@ -93,7 +96,7 @@ struct BuildingControls {
         balconies->value(parameters.balconies);
         if (!apartmentActive) balconies->deactivate();
         const std::string name = std::string(apartmentActive ? "Apartment #" : "Office #")
-            + std::to_string(view->selectedBuildingId()+1);
+            + std::to_string(scene->selectedBuildingId()+1);
         heading->copy_label((name + " parameters").c_str());
         message(name + " selected.\nEdit fields, then Apply changes.");
     }
@@ -107,7 +110,7 @@ struct BuildingControls {
         parameters.floorHeight = 1.5f;
         parameters.balconies = isApartment;
         try {
-            const auto count = view->addBuilding(isApartment, parameters);
+            const auto count = scene->addBuilding(isApartment, parameters);
             message(std::string(isApartment ? "Apartment" : "Office") +
                     " added.\n" + std::to_string(count) + " pieces.\nClick any building to edit it.");
         } catch (const std::exception& error) {
@@ -124,7 +127,7 @@ struct BuildingControls {
             parameters.depth = float(readNumber(*depth, "Depth", 2, 8, false));
             parameters.floorHeight = 1.5f; // Keep both families on the same floor grid.
             parameters.balconies = apartmentActive && balconies->value();
-            const auto count = view->setBuilding(apartmentActive, parameters);
+            const auto count = scene->setBuilding(apartmentActive, parameters);
             message(std::string(apartmentActive ? "Apartment" : "Office") +
                     " updated.\n" + std::to_string(parameters.floors) + " floors, " +
                     std::to_string(parameters.bays) + " upper-floor bays.\n" +
@@ -142,7 +145,7 @@ struct BuildingControls {
     }
     static void deleteClicked(Fl_Widget*, void* data) {
         auto* controls = static_cast<BuildingControls*>(data);
-        if (controls->view->deleteSelectedBuilding())
+        if (controls->scene->deleteSelectedBuilding())
             controls->message("Building deleted.\nSelect another building or add a preset.");
     }
     static void applyClicked(Fl_Widget*, void* data) {
@@ -180,7 +183,10 @@ int main(int argc, char** argv) {
     toolbar->resizable(nullptr);
     toolbar->end();
 
-    auto* view = new sg::SceneView(0, toolbarH, panelX, winH - toolbarH);
+    // The scene model (buildings + placement + selection) lives here and is
+    // shared by the 3D view (renders/edits it) and the sidebar (adds/edits).
+    static sg::SceneController scene;
+    auto* view = new sg::SceneView(scene, 0, toolbarH, panelX, winH - toolbarH);
     auto* panel = new Fl_Group(panelX, toolbarH, sidePanelW, winH - toolbarH);
     panel->box(FL_FLAT_BOX);
     panel->color(paper);
@@ -268,13 +274,16 @@ int main(int argc, char** argv) {
     panel->resizable(nullptr);
     panel->end();
 
-    BuildingControls controls{view, heading, floors, bays,
-                              width, depth, balconies, apply, remove, status};
+    // controls must outlive the callbacks it's bound to (window runs until exit).
+    static BuildingControls controls{&scene, heading, floors, bays,
+                                     width, depth, balconies, apply, remove, status};
     office->callback(BuildingControls::officeClicked, &controls);
     apartment->callback(BuildingControls::apartmentClicked, &controls);
     apply->callback(BuildingControls::applyClicked, &controls);
     remove->callback(BuildingControls::deleteClicked, &controls);
-    view->onSelectionChanged([&controls] { controls.syncSelection(); });
+    // When the selection changes (via sidebar or a click in the 3D view), the
+    // sidebar refreshes its fields.
+    scene.onSelectionChanged([] { controls.syncSelection(); });
     controls.syncSelection();
 
     window.end();

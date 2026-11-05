@@ -61,6 +61,7 @@ add_executable(shape_grammars
     src/scene/Camera.cpp
     src/scene/Mesh.cpp
     src/scene/Primitives.cpp
+    src/scene/SceneController.cpp
 
     src/scene/V3.cpp
     src/scene/M33.cpp

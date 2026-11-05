@@ -7,12 +7,11 @@
 #include <FL/Fl_PNG_Image.H> // FLTK's bundled PNG decoder (no extra dependency)
 
 #include <cstdlib>   // std::abs
-#include <vector>    // repack pixel rows for glTexImage2D
 #include <cmath>     // std::abs(float)
 #include <limits>    // std::numeric_limits
 #include <utility>   // std::swap
 #include <algorithm> // std::min, std::max
-#include <stdexcept>
+#include <vector>    // repack pixel rows for glTexImage2D
 
 //macOS compatibility
 #ifdef __APPLE__
@@ -25,29 +24,9 @@
 
 namespace sg {
 
-namespace {
-AABB terminalBounds(const std::vector<ShapeNode>& terminals, int buildingId = -1) {
-    AABB bounds;
-    for (const ShapeNode& terminal : terminals) {
-        if (buildingId >= 0 && terminal.buildingId != buildingId) continue;
-        V3 center = terminal.position, half = terminal.size;
-        half = half * 0.5f;
-        M33 rotation = terminal.rotation;
-        for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
-            bounds.AddPoint(center + rotation * V3(x*half[0], y*half[1], z*half[2]));
-    }
-    return bounds;
-}
-
-void requireInsideGrid(AABB bounds, float limit) {
-    if (bounds.minC[0] < -limit-1e-4f || bounds.maxC[0] > limit+1e-4f ||
-        bounds.minC[2] < -limit-1e-4f || bounds.maxC[2] > limit+1e-4f)
-        throw std::invalid_argument("This size extends beyond the grid. Move the building inward or reduce its width/depth.");
-}
-} // namespace
-
-SceneView::SceneView(int x, int y, int w, int h, const char* label)
-    : Fl_Gl_Window(x, y, w, h, label) { //pass position/size up to the FLTK base class
+SceneView::SceneView(SceneController& controller, int x, int y, int w, int h, const char* label)
+    : Fl_Gl_Window(x, y, w, h, label), //pass position/size up to the FLTK base class
+      controller(controller) {
     //tell FLTK what features we want in openGL surface:
     //  - color (red/green/blue) rendering
     //  - a "depth buffer" so OpenGL knows which surfaces are in front
@@ -58,113 +37,9 @@ SceneView::SceneView(int x, int y, int w, int h, const char* label)
     boxMesh = primitives::makeUnitBox();
     cylinderMesh = primitives::makeUnitCylinder(32); //32=radial segments in the cylinder (smoothness)
 
-    // The UI adds the initial preset through addBuilding().
-}
-
-std::size_t SceneView::addBuilding(bool apartment, const building_rules::Parameters& parameters) {
-    ShapeNode root = apartment ? building_rules::makeApartment(parameters)
-                               : building_rules::makeOffice(parameters);
-    engine.GenerateTree(&root);
-    const auto pieces = engine.TerminalsForRoot(root);
-    AABB bounds = terminalBounds(pieces);
-    requireInsideGrid(bounds, grid.halfExtent);
-
-    // Find a free grid location, trying the origin and then nearby X positions
-    // before starting another row. Existing buildings keep their placement.
-    std::vector<AABB> occupied;
-    for (const ShapeNode& existing : engine.roots)
-        occupied.push_back(terminalBounds(engine.TerminalsForRoot(existing)));
-    std::vector<float> coordinates{0};
-    const int cells = static_cast<int>(std::floor(grid.halfExtent / grid.spacing));
-    for (int i = 1; i <= cells; ++i) {
-        coordinates.push_back(i * grid.spacing);
-        coordinates.push_back(-i * grid.spacing);
-    }
-    bool found = false;
-    V3 placement(0, 0, 0);
-    for (float z : coordinates) {
-        for (float x : coordinates) {
-            if (bounds.minC[0]+x < -grid.halfExtent || bounds.maxC[0]+x > grid.halfExtent ||
-                bounds.minC[2]+z < -grid.halfExtent || bounds.maxC[2]+z > grid.halfExtent) continue;
-            bool overlaps = false;
-            for (AABB other : occupied) {
-                if (bounds.maxC[0]+x > other.minC[0]-grid.spacing &&
-                    bounds.minC[0]+x < other.maxC[0]+grid.spacing &&
-                    bounds.maxC[2]+z > other.minC[2]-grid.spacing &&
-                    bounds.minC[2]+z < other.maxC[2]+grid.spacing) {
-                    overlaps = true;
-                    break;
-                }
-            }
-            if (overlaps) continue;
-            placement = V3(x, 0, z);
-            found = true;
-            break;
-        }
-        if (found) break;
-    }
-    if (!found) throw std::invalid_argument("The grid has no free space for another building.");
-    root.position = root.position + placement;
-    const int buildingId = engine.AddRoot(std::move(root));
-    selectBuilding(buildingId);
-    redraw();
-    return pieces.size();
-}
-
-std::size_t SceneView::setBuilding(bool apartment, const building_rules::Parameters& parameters) {
-    const ShapeNode* current = engine.FindRoot(selectedRootId);
-    if (!current) throw std::invalid_argument("Select a building before applying changes.");
-    // Build a candidate with the same placement/orientation. Commit only after
-    // validation, preserving every other root and its generated geometry.
-    ShapeNode root = apartment ? building_rules::makeApartment(parameters)
-                               : building_rules::makeOffice(parameters);
-    V3 previousPosition = current->position, previousSize = current->size;
-    root.position = V3(previousPosition[0], previousPosition[1]-previousSize[1]/2+root.size[1]/2,
-                       previousPosition[2]);
-    root.rotation = current->rotation;
-    engine.GenerateTree(&root);
-    const auto pieces = engine.TerminalsForRoot(root);
-    requireInsideGrid(terminalBounds(pieces), grid.halfExtent);
-    engine.ReplaceRoot(selectedRootId, std::move(root));
-    movingBuilding = false;
-    if (selectionChanged) selectionChanged();
-    redraw();
-    return pieces.size();
-}
-
-bool SceneView::getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const {
-    const ShapeNode* root = engine.FindRoot(selectedRootId);
-    if (!root) return false;
-    V3 size = root->size;
-    apartment = root->symbol == Symbol::Apartment;
-    parameters.floors = root->building.floors;
-    parameters.bays = root->building.bays;
-    parameters.width = size[0];
-    parameters.depth = size[2];
-    parameters.floorHeight = (size[1]-building_rules::roofHeight) / parameters.floors;
-    parameters.balconies = root->building.balconies;
-    return true;
-}
-
-void SceneView::selectBuilding(int buildingId) {
-    if (buildingId != -1 && !engine.FindRoot(buildingId))
-        throw std::invalid_argument("Building no longer exists.");
-    if (selectedRootId == buildingId) return;
-    selectedRootId = buildingId;
-    movingBuilding = false;
-    if (selectionChanged) selectionChanged();
-    redraw();
-}
-
-bool SceneView::deleteSelectedBuilding() {
-    if (selectedRootId < 0) return false;
-    const bool removed = engine.RemoveRoot(selectedRootId);
-    selectBuilding(-1); // Clear highlighting/drag state and refresh the sidebar.
-    return removed;
-}
-
-void SceneView::onSelectionChanged(std::function<void()> callback) {
-    selectionChanged = std::move(callback);
+    // Repaint whenever the scene model changes (building added/edited/moved/deleted).
+    controller.onChanged([this] { redraw(); });
+    // (The UI adds the initial preset through the controller's addBuilding().)
 }
 
 void SceneView::initGLState() { //enabling opengl features
@@ -285,6 +160,8 @@ void SceneView::drawGroundGrid() {
     //lighting OFF so the lines are a flat, constant color
     glDisable(GL_LIGHTING);
     glColor3f(0.30f, 0.32f, 0.38f); // light gray
+    //the grid definition (extent + spacing) lives on the scene controller now
+    const primitives::GroundGrid& grid = controller.gridRef();
     glBegin(GL_LINES);
     //https://stackoverflow.com/questions/29455751/how-to-calculate-the-half-extents-of-a-cube
     for (float c = -grid.halfExtent; c <= grid.halfExtent + 1e-3f; c += grid.spacing) {
@@ -300,9 +177,18 @@ void SceneView::drawGroundGrid() {
 }
 
 void SceneView::drawGrammarScene() {
+    //the scene model owns the engine + selection; read them for this frame
+    const GrammarEngine& engine = controller.engineRef();
+    const int selectedRootId = controller.selectedBuildingId();
+
     //each terminal has a world-space position, a size, and a material. draw the unit box moved+scaled to match, tinted by material
-    for (ShapeNode& t : engine.terminals) {
+    for (const ShapeNode& t : engine.terminals) {
         const bool buildingSelected = t.buildingId == selectedRootId;
+        //the V3/M33 subscript operators are non-const, and t is const here, so
+        //copy position/size/rotation into mutable locals before indexing them
+        V3 tPosition = t.position;
+        V3 tSize = t.size;
+        M33 tRotation = t.rotation;
         //map the grammar Material tag to an RGB tint for this terminal
         float r = 0.8f, g = 0.8f, b = 0.8f;
         switch (t.material) {
@@ -328,8 +214,8 @@ void SceneView::drawGrammarScene() {
             //s follows object X, t follows object Y. Folding the terminal's size
             //into the planes makes the texture tile ~once per world unit, so the
             //scale looks consistent across big walls and tiny trim pieces
-            const GLfloat sPlane[4] = {t.size[0], 0.0f, 0.0f, 0.0f};
-            const GLfloat tPlane[4] = {0.0f, t.size[1], 0.0f, 0.0f};
+            const GLfloat sPlane[4] = {tSize[0], 0.0f, 0.0f, 0.0f};
+            const GLfloat tPlane[4] = {0.0f, tSize[1], 0.0f, 0.0f};
             glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
             glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
             glTexGenfv(GL_S, GL_OBJECT_PLANE, sPlane);
@@ -356,16 +242,16 @@ void SceneView::drawGrammarScene() {
         //https://www.scribd.com/document/135598965/NeHe-OpenGL-Tutorial#page=9
 
         glPushMatrix();
-        glTranslatef(t.position[0], t.position[1], t.position[2]); //world position
+        glTranslatef(tPosition[0], tPosition[1], tPosition[2]); //world position
         // M33 stores rows; OpenGL consumes a column-major 4x4 matrix.
         const float rotation[16] = {
-            t.rotation[0][0], t.rotation[1][0], t.rotation[2][0], 0,
-            t.rotation[0][1], t.rotation[1][1], t.rotation[2][1], 0,
-            t.rotation[0][2], t.rotation[1][2], t.rotation[2][2], 0,
+            tRotation[0][0], tRotation[1][0], tRotation[2][0], 0,
+            tRotation[0][1], tRotation[1][1], tRotation[2][1], 0,
+            tRotation[0][2], tRotation[1][2], tRotation[2][2], 0,
             0, 0, 0, 1
         };
         glMultMatrixf(rotation);
-        glScalef(t.size[0], t.size[1], t.size[2]);                 //box dimensions
+        glScalef(tSize[0], tSize[1], tSize[2]);                 //box dimensions
         boxMesh.draw(); // all current terminals are box shapes
         glPopMatrix();
 
@@ -385,11 +271,9 @@ void SceneView::drawGrammarScene() {
 
 //draw highlight box around the whole selected building
 void SceneView::drawSelectionHighlight() {
-    const ShapeNode* root = engine.FindRoot(selectedRootId);
-    if (!root) return;
-    // Full geometry keeps the selected outline stable even when a join hides
-    // a whole side (or another building completely contains this root).
-    AABB bounds = terminalBounds(engine.TerminalsForRoot(*root));
+    //the controller computes the selected building's world bounds for us
+    AABB bounds;
+    if (!controller.selectedBuildingBounds(bounds)) return;
 
     //2) pad the box slightly so the outline floats just outside
     const float pad = 0.03f;
@@ -528,6 +412,7 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
 
     // Walk every terminal and remember the nearest one the ray enters
     // NOTE: supports boxes currently- cylinders fall back to their bounding box, which is fine for whole-building selection?
+    const GrammarEngine& engine = controller.engineRef();
     float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
     int hitBuildingId = -1;
     for (const ShapeNode& t : engine.terminals) {
@@ -540,7 +425,8 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
         }
     }
 
-    selectBuilding(hitBuildingId);
+    //tell the scene model what got selected (empty space -> deselect)
+    controller.selectBuilding(hitBuildingId);
     return hitBuildingId >= 0;
 }
 
@@ -559,31 +445,6 @@ bool SceneView::rayHitGround(const V3& origin, const V3& dir, V3& outPoint) cons
     return true;
 }
 
-// Snap a ground point to the nearest grid intersection, then confine it so the
-// WHOLE building stays inside the grid.
-V3 SceneView::snapToGrid(const V3& point) const {
-    V3 p = point; // local mutable copy
-    const ShapeNode* root = engine.FindRoot(selectedRootId);
-    if (!root) return p;
-    const float step = grid.spacing;            // one grid cell, the snap unit
-    float sx = std::round(p[0] / step) * step;  // round to nearest grid step
-    float sz = std::round(p[2] / step) * step;
-
-    // keep the placement inside the grid's extent so you can't drag off the edge
-    AABB bounds = terminalBounds(engine.TerminalsForRoot(*root));
-    V3 rootPosition = root->position;
-    // Use asymmetric bounds (balconies/canopies project forward) and round the
-    // allowed interval inward so clamping also preserves grid alignment.
-    const float minX = std::ceil((-grid.halfExtent-bounds.minC[0]+rootPosition[0])/step)*step;
-    const float maxX = std::floor((grid.halfExtent-bounds.maxC[0]+rootPosition[0])/step)*step;
-    const float minZ = std::ceil((-grid.halfExtent-bounds.minC[2]+rootPosition[2])/step)*step;
-    const float maxZ = std::floor((grid.halfExtent-bounds.maxC[2]+rootPosition[2])/step)*step;
-    sx = std::max(minX, std::min(maxX, sx));
-    sz = std::max(minZ, std::min(maxZ, sz));
-
-    return V3(sx, p[1], sz);
-}
-
 // fltk's input callback
 // return 1 if we consumed the input
 //https://www.fltk.org/doc-1.3/events.html
@@ -600,10 +461,10 @@ int SceneView::handle(int event) {
 
             if (hitBuilding) {
                 //clicked ON the building -> begin MOVING it (not camera orbiting)
-                V3 origin, dir, groundPt;
+                V3 origin, dir, groundPt, position;
                 buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
-                if (rayHitGround(origin, dir, groundPt)) {
-                    V3 position = engine.FindRoot(selectedRootId)->position;
+                if (rayHitGround(origin, dir, groundPt) &&
+                    controller.selectedRootPosition(position)) {
                     grabOffset = position - groundPt;
                     movingBuilding = true;
                 }
@@ -638,11 +499,11 @@ int SceneView::handle(int event) {
             V3 origin, dir, groundPt;
             buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
             if (rayHitGround(origin, dir, groundPt)) {
-                //New placement = ground point + the grab offset we stored, so the building keeps the same spot under the cursor
-                //then snap to the grid
+                //New placement = ground point + the grab offset we stored, so the building keeps the same spot under the cursor.
+                //The controller snaps it to the grid and commits the move (which
+                //triggers our onChanged -> redraw).
                 V3 placement = groundPt + grabOffset;
-                engine.MoveRoot(selectedRootId, snapToGrid(placement));
-                redraw();
+                controller.moveSelectedTo(controller.snapToGrid(placement));
             }
         } else if (dragging) {
             //pixels -> degrees
