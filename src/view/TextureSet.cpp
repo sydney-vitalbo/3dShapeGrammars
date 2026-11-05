@@ -7,6 +7,7 @@
 #include <FL/Fl_PNG_Image.H> // FLTK's bundled PNG decoder (no extra dependency)
 
 #include <cstddef> // size_t
+#include <string>  // build candidate texture paths
 #include <vector>  // repack pixel rows for glTexImage2D
 
 //macOS compatibility (same GL headers SceneView uses)
@@ -20,13 +21,39 @@
 
 namespace sg {
 
-// Decode one PNG with FLTK and upload it as an OpenGL texture for `material`
+// Decode one PNG with FLTK and upload it as an OpenGL texture for `material`.
+// `relativePath` is given relative to the repository root (e.g.
+// "src/textures/Stone.png"); loadAll() tries it under several base directories
+// so the texture is found no matter which folder the program is launched from.
 //https://www.fltk.org/newsgroups.php?s0+gfltk.general+v39519+T0
-void TextureSet::loadTexture(Material material, const char* path) {
-    Fl_PNG_Image img(path);
-    if (img.fail() || img.w() <= 0 || img.h() <= 0) {
-        return; // file missing/unreadable -> leave this material untextured
+void TextureSet::loadTexture(Material material, const char* relativePath) {
+    // Relative paths resolve against the CURRENT WORKING DIRECTORY, which is not
+    // the same in every way the app gets launched so build a list of candidate
+    // paths and use the first that decodes
+    std::string fromRoot = relativePath;
+    std::string leaf = fromRoot;
+    if (leaf.rfind("src/", 0) == 0) leaf = leaf.substr(4); // strip leading "src/"
+
+    const std::string candidates[] = {
+        fromRoot,              // cwd = repo root (CMake run/debug)
+        leaf,                  // cwd = src/  (running src/main.exe from src/)
+        "../" + fromRoot,      // cwd one level below repo root
+        "../../" + fromRoot,   // cwd = build/<preset>/bin
+        "../../../" + fromRoot // cwd = build/<preset>/bin/<config>
+    };
+
+    for (const std::string& full : candidates) {
+        Fl_PNG_Image img(full.c_str());
+        if (img.fail() || img.w() <= 0 || img.h() <= 0) continue; // try next candidate
+        uploadTexture(material, img);
+        return; // loaded successfully
     }
+    // None of the candidate paths worked -> leave this material untextured
+    // (the renderer falls back to a flat color for it).
+}
+
+// Upload an already-decoded FLTK image as the GL texture for `material`.
+void TextureSet::uploadTexture(Material material, Fl_RGB_Image& img) {
 
     const int w = img.w();
     const int h = img.h();

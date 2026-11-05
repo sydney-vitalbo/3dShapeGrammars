@@ -13,6 +13,8 @@
 #include "grammar/ShapeNode.h" // Material
 #include "scene/V3.h"          // V3 (terminal size, for tiling)
 
+class Fl_RGB_Image; // FLTK decoded image (Fl_PNG_Image derives from it)
+
 namespace sg {
 
 /**
@@ -57,9 +59,18 @@ public:
 private:
     /**
      * Decode one PNG with FLTK and upload it as the GL texture for `material`.
-     * A missing/unreadable file leaves the material untextured.
+     * `relativePath` is relative to the repository root (e.g.
+     * "src/textures/Stone.png"); the file is searched under several base
+     * directories so it loads regardless of the current working directory.
+     * If no candidate decodes, the material is left untextured.
      */
-    void loadTexture(Material material, const char* path);
+    void loadTexture(Material material, const char* relativePath);
+
+    /**
+     * Upload an already-decoded FLTK image as the GL texture for `material`.
+     * Separated from loadTexture so the path-search logic stays readable.
+     */
+    void uploadTexture(Material material, Fl_RGB_Image& img);
 
     // One GL texture id per Material (enum values index this array:
     // None=0, Wood=1, Glass=2, Stone=3). 0 means "no texture" -> flat color.

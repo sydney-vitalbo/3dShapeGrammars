@@ -17,3 +17,5 @@ CMakeUserPresets.json
 Thumbs.db
 
 .vscode/
+
+src/main.exe
