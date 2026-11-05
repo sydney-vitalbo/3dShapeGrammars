@@ -143,6 +143,9 @@ std::size_t SceneController::setBuilding(bool apartment, const building_rules::P
     const auto pieces = engine.TerminalsForRoot(root);
     requireInsideGrid(terminalBounds(pieces), grid.halfExtent);
     engine.ReplaceRoot(selectedRootId, std::move(root));
+    // The tree was regenerated, so tree panel reselects nothing after refresh()
+    highlightActive = false;
+    highlightPath.clear();
     if (selectionChanged) selectionChanged();
     notifyChanged();
     return pieces.size();
