@@ -25,6 +25,8 @@ public:
     int AddRoot(ShapeNode root);
     void ReplaceRoot(int buildingId, ShapeNode root);
     void MoveRoot(int buildingId, V3 position);
+    // Removing a root also restores any walls exposed on its neighbours.
+    bool RemoveRoot(int buildingId);
     const ShapeNode* FindRoot(int buildingId) const;
     // Refresh root bounds/contact masks, propagate visibility, then collect.
     void RebuildTerminals();

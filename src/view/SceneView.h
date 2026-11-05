@@ -41,6 +41,7 @@ public:
     bool getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const;
     int selectedBuildingId() const { return selectedRootId; }
     void selectBuilding(int buildingId);
+    bool deleteSelectedBuilding();
     void onSelectionChanged(std::function<void()> callback);
 
 private:

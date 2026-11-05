@@ -59,6 +59,7 @@ struct BuildingControls {
     Fl_Float_Input* depth;
     Fl_Check_Button* balconies;
     Fl_Button* applyButton;
+    Fl_Button* deleteButton;
     Fl_Box* status;
     bool apartmentActive = false;
 
@@ -71,7 +72,7 @@ struct BuildingControls {
     void syncSelection() {
         building_rules::Parameters parameters;
         const bool selected = view->getSelectedBuilding(apartmentActive, parameters);
-        Fl_Widget* fields[] = {floors, bays, width, depth, balconies, applyButton};
+        Fl_Widget* fields[] = {floors, bays, width, depth, balconies, applyButton, deleteButton};
         for (Fl_Widget* field : fields) {
             if (selected) field->activate(); else field->deactivate();
         }
@@ -138,6 +139,11 @@ struct BuildingControls {
     }
     static void apartmentClicked(Fl_Widget*, void* data) {
         static_cast<BuildingControls*>(data)->loadPreset(true);
+    }
+    static void deleteClicked(Fl_Widget*, void* data) {
+        auto* controls = static_cast<BuildingControls*>(data);
+        if (controls->view->deleteSelectedBuilding())
+            controls->message("Building deleted.\nSelect another building or add a preset.");
     }
     static void applyClicked(Fl_Widget*, void* data) {
         static_cast<BuildingControls*>(data)->apply();
@@ -241,7 +247,15 @@ int main(int argc, char** argv) {
     apply->labelfont(FL_HELVETICA_BOLD);
     apply->labelsize(13);
     apply->shortcut(FL_CTRL + FL_Enter);
-    auto* status = new Fl_Box(left, 500, 252, 94);
+    auto* remove = new Fl_Button(left, 488, 252, 32, "Delete selected");
+    remove->box(fieldBox);
+    remove->down_box(FL_FLAT_BOX);
+    remove->color(paper);
+    remove->selection_color(line);
+    remove->labelcolor(ink);
+    remove->labelsize(12);
+    remove->tooltip("Remove the selected building from the scene.");
+    auto* status = new Fl_Box(left, 534, 252, 66);
     status->align(FL_ALIGN_LEFT | FL_ALIGN_TOP | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
     status->labelsize(12);
     auto* divider = new Fl_Box(FL_FLAT_BOX, left, 610, 252, 1, "");
@@ -255,10 +269,11 @@ int main(int argc, char** argv) {
     panel->end();
 
     BuildingControls controls{view, heading, floors, bays,
-                              width, depth, balconies, apply, status};
+                              width, depth, balconies, apply, remove, status};
     office->callback(BuildingControls::officeClicked, &controls);
     apartment->callback(BuildingControls::apartmentClicked, &controls);
     apply->callback(BuildingControls::applyClicked, &controls);
+    remove->callback(BuildingControls::deleteClicked, &controls);
     view->onSelectionChanged([&controls] { controls.syncSelection(); });
     controls.syncSelection();
 

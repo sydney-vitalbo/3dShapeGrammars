@@ -156,6 +156,13 @@ void SceneView::selectBuilding(int buildingId) {
     redraw();
 }
 
+bool SceneView::deleteSelectedBuilding() {
+    if (selectedRootId < 0) return false;
+    const bool removed = engine.RemoveRoot(selectedRootId);
+    selectBuilding(-1); // Clear highlighting/drag state and refresh the sidebar.
+    return removed;
+}
+
 void SceneView::onSelectionChanged(std::function<void()> callback) {
     selectionChanged = std::move(callback);
 }

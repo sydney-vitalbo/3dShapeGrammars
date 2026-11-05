@@ -134,6 +134,15 @@ void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
     throw std::invalid_argument("Building no longer exists.");
 }
 
+bool GrammarEngine::RemoveRoot(int buildingId) {
+    const auto root = std::find_if(roots.begin(), roots.end(),
+        [buildingId](const ShapeNode& node) { return node.buildingId == buildingId; });
+    if (root == roots.end()) return false;
+    roots.erase(root);
+    RebuildTerminals();
+    return true;
+}
+
 void GrammarEngine::MoveRoot(int buildingId, V3 position) {
     for (ShapeNode& root : roots) {
         if (root.buildingId != buildingId) continue;
