@@ -58,6 +58,8 @@ endif()
 add_executable(shape_grammars
     src/main.cpp
     src/view/SceneView.cpp
+    src/view/TextureSet.cpp
+    src/view/Picking.cpp
     src/scene/Camera.cpp
     src/scene/Mesh.cpp
     src/scene/Primitives.cpp

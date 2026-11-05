@@ -1,17 +1,14 @@
 // SceneView.cpp
 
 #include "view/SceneView.h"
+#include "view/Picking.h" // ray/box + ray/ground geometry
 
 #include <FL/Fl.H>
 #include <FL/gl.h>
-#include <FL/Fl_PNG_Image.H> // FLTK's bundled PNG decoder (no extra dependency)
 
 #include <cstdlib>   // std::abs
-#include <cmath>     // std::abs(float)
-#include <limits>    // std::numeric_limits
-#include <utility>   // std::swap
-#include <algorithm> // std::min, std::max
-#include <vector>    // repack pixel rows for glTexImage2D
+#include <limits>    // std::numeric_limits (nearest-hit search)
+#include <algorithm> // std::min, std::max (selection tint clamps)
 
 //macOS compatibility
 #ifdef __APPLE__
@@ -68,59 +65,6 @@ void SceneView::initGLState() { //enabling opengl features
     glClearColor(0.12f, 0.13f, 0.16f, 1.0f); //dark gray-blue
 }
 
-// Decode one PNG with FLTK and upload it as an OpenGL texture for `material`
-//https://www.fltk.org/newsgroups.php?s0+gfltk.general+v39519+T0
-void SceneView::loadTexture(Material material, const char* path) {
-    Fl_PNG_Image img(path);
-    if (img.fail() || img.w() <= 0 || img.h() <= 0) {
-        return; // file missing/unreadable -> leave this material untextured
-    }
-
-    const int w = img.w();
-    const int h = img.h();
-    const int d = img.d();  // channels: 1=gray,3=RGB,4=RGBA
-    const int ld = img.ld() ? img.ld() : w * d; // row stride (may include padding)
-    const unsigned char* src = reinterpret_cast<const unsigned char*>(img.data()[0]);
-
-    // Repack into RGB/RGBA
-    const int outCh = (d == 4) ? 4 : 3;
-    std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * outCh);
-    for (int y = 0; y < h; ++y) {
-        const unsigned char* row = src + static_cast<size_t>(y) * ld;
-        unsigned char* out = pixels.data() + static_cast<size_t>(y) * w * outCh;
-        for (int x = 0; x < w; ++x) {
-            const unsigned char* p = row + static_cast<size_t>(x) * d;
-            if (d == 1) { out[0] = out[1] = out[2] = p[0]; }       // gray -> RGB
-            else { out[0]=p[0]; out[1]=p[1]; out[2]=p[2]; if (outCh==4) out[3]=p[3]; }
-            out += outCh;
-        }
-    }
-
-    unsigned int tex = 0;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // our buffer is tightly packed
-    const GLint fmt = (outCh == 4) ? GL_RGBA : GL_RGB;
-    // gluBuild2DMipmaps handles non-power-of-two sizes and builds mipmaps, so the
-    // texture stays clean when the building is small/far on screen.
-    gluBuild2DMipmaps(GL_TEXTURE_2D, fmt, w, h, fmt, GL_UNSIGNED_BYTE, pixels.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    materialTextures[static_cast<int>(material)] = tex;
-}
-
-// Load one texture per building material
-void SceneView::loadTextures() {
-    loadTexture(Material::Stone, "src/textures/Stone.png");
-    loadTexture(Material::Glass, "src/textures/Glass.png");
-    loadTexture(Material::Wood,  "src/textures/Wood.png");
-    // Material::None (roof deck) stays untextured -> flat color.
-}
-
 // draw() is called by FLTK whenever the view needs repainting (first show,
 // after a resize, or after we call redraw()). It paints exactly one frame.
 void SceneView::draw() {
@@ -133,7 +77,7 @@ void SceneView::draw() {
         }
         //textures need a current GL context, which exists here (inside draw)
         if (!texturesLoaded) {
-            loadTextures();
+            textures.loadAll();
             texturesLoaded = true;
         }
         //on resize tell OpenGL the new size, and recompute the projection so the picture's aspect ratio matches the window and nothing looks stretched
@@ -198,30 +142,20 @@ void SceneView::drawGrammarScene() {
             case Material::None:  r = 0.19f; g = 0.22f; b = 0.24f; break; // roof deck
         }
 
-        //does this material have a texture loaded?
-        const unsigned int tex = materialTextures[static_cast<int>(t.material)];
+        //does this material have a texture? (the TextureSet owns the textures)
+        const bool textured = textures.has(t.material);
 
-        if (tex != 0) {
-            //Textured: bind it and let OpenGL AUTO-GENERATE texture coordinates
-            //from the vertex positions (object-linear texgen)
+        if (textured) {
+            //Textured: the texture provides the color. Keep glColor white so it
+            //shows at full brightness, except brighten it when the building is
+            //selected so the selection still reads through the texture.
             if (buildingSelected) { r = std::min(1.0f, r*0.6f+0.45f);
                                     g = std::min(1.0f, g*0.6f+0.38f);
                                     b = std::min(1.0f, b*0.6f+0.10f); glColor3f(r,g,b); }
             else                  { glColor3f(1.0f, 1.0f, 1.0f); }
 
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            //s follows object X, t follows object Y. Folding the terminal's size
-            //into the planes makes the texture tile ~once per world unit, so the
-            //scale looks consistent across big walls and tiny trim pieces
-            const GLfloat sPlane[4] = {tSize[0], 0.0f, 0.0f, 0.0f};
-            const GLfloat tPlane[4] = {0.0f, tSize[1], 0.0f, 0.0f};
-            glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-            glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-            glTexGenfv(GL_S, GL_OBJECT_PLANE, sPlane);
-            glTexGenfv(GL_T, GL_OBJECT_PLANE, tPlane);
-            glEnable(GL_TEXTURE_GEN_S);
-            glEnable(GL_TEXTURE_GEN_T);
+            //bind the texture + set up automatic texture coordinates for this piece
+            textures.bind(t.material, tSize);
         } else {
             //Untextured: keep the existing flat-color look, brightened when selected.
             if (buildingSelected) {
@@ -256,11 +190,7 @@ void SceneView::drawGrammarScene() {
         glPopMatrix();
 
         //turn texturing back off so the next piece (or the grid/highlight) isn't accidentally textured
-        if (tex != 0) {
-            glDisable(GL_TEXTURE_GEN_S);
-            glDisable(GL_TEXTURE_GEN_T);
-            glDisable(GL_TEXTURE_2D);
-        }
+        if (textured) textures.unbind();
     }
 
     //when selected, add a single outline around the whole building
@@ -353,50 +283,6 @@ void SceneView::buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& out
     outDir = (farPoint - outOrigin).Normalize();
 }
 
-//Determine if selection ray hit this terminal
-//"slab method": https://en.wikipedia.org/wiki/Slab_method
-// Returns true on a hit and writes the entry distance to outT (used to pick the closest terminal)
-bool SceneView::rayHitTerminal(const V3& origin, const V3& dir,
-                                const ShapeNode& terminal, float& outT) const {
-    //V3/M33 math API has no const methods, so copy into mutable locals
-    V3 org = origin, direction = dir;
-    V3 center = terminal.position;
-    V3 size = terminal.size;
-    M33 rot = terminal.rotation;
-    M33 inv = rot.Transpose(); // world-orientation -> local-orientation (inverse)
-
-    // Move the ray into the box's local space: subtract the box center (so the
-    // box sits at the origin) and un-rotate it. Now the box is axis-aligned and
-    // spans [-half, +half] on each axis
-    V3 o = inv * (org - center); // ray start,  in local space
-    V3 d = inv * direction;      // ray heading, in local space
-    V3 half = size * 0.5f;       // half the box size on each axis
-
-    //start with "the whole ray" and shrink the valid [tMin, tMax] window one axis at a time
-    float tMin = 0.0f;
-    float tMax = std::numeric_limits<float>::max();
-    for (int i = 0; i < 3; ++i) { // i = 0,1,2  ->  X, Y, Z axis
-        const float oi = o[i], di = d[i], h = half[i];
-        if (std::abs(di) < 1e-8f) {
-            //ray runs parallel to this pair of walls (it never crosses them)
-            //then it can only be inside if it already STARTS between them
-            if (oi < -h || oi > h) return false; // started outside -> definite miss
-        } else {
-            //distances at which the ray crosses this axis's two walls (-h and +h)
-            float t1 = (-h - oi) / di;
-            float t2 = ( h - oi) / di;
-            if (t1 > t2) std::swap(t1, t2); // make t1 the near wall, t2 the far wall
-            //tighten the overlap window to this slab's [t1, t2].
-            tMin = std::max(tMin, t1); // latest entry so far
-            tMax = std::min(tMax, t2); // earliest exit so far
-            if (tMin > tMax) return false; // slabs don't overlap -> the ray misses
-        }
-    }
-    //survived all three axes: the ray enters the box at distance tMin
-    outT = tMin;
-    return true;
-}
-
 //Determine what the user clicked
 bool SceneView::pickComponent(int mouseX, int mouseY) {
     //this runs from the mouse-event handler (not draw()) so the GL context
@@ -417,9 +303,10 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     int hitBuildingId = -1;
     for (const ShapeNode& t : engine.terminals) {
         float tHit;
-        // rayHitTerminal returns true + the entry distance if the ray pierces
-        // this box; we keep it only if it's closer than anything found before
-        if (rayHitTerminal(origin, dir, t, tHit) && tHit < bestT) {
+        // picking::rayHitBox returns true + the entry distance if the ray pierces
+        // this terminal's box; we keep it only if it's closer than any found before
+        if (picking::rayHitBox(origin, dir, t.position, t.size, t.rotation, tHit) &&
+            tHit < bestT) {
             bestT = tHit;
             hitBuildingId = t.buildingId;
         }
@@ -428,21 +315,6 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     //tell the scene model what got selected (empty space -> deselect)
     controller.selectBuilding(hitBuildingId);
     return hitBuildingId >= 0;
-}
-
-// Find where a ray crosses the flat ground plane (y = 0)
-//
-// just need the t where the ray's y-component becomes 0:
-//     origin.y + t * dir.y = 0   ->   t = -origin.y / dir.y
-// If dir.y is ~0 the ray runs parallel to the ground, if t is negative the ground is behind the camera (no hit)
-bool SceneView::rayHitGround(const V3& origin, const V3& dir, V3& outPoint) const {
-    V3 o = origin, d = dir; // local mutable copies (V3 API is non-const)
-    const float dy = d[1];
-    if (std::abs(dy) < 1e-8f) return false;     // parallel to the ground
-    const float t = -o[1] / dy;
-    if (t < 0.0f) return false;                 // ground is behind the camera
-    outPoint = o + d * t;                       // the point where y == 0
-    return true;
 }
 
 // fltk's input callback
@@ -463,7 +335,7 @@ int SceneView::handle(int event) {
                 //clicked ON the building -> begin MOVING it (not camera orbiting)
                 V3 origin, dir, groundPt, position;
                 buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
-                if (rayHitGround(origin, dir, groundPt) &&
+                if (picking::rayHitGround(origin, dir, groundPt) &&
                     controller.selectedRootPosition(position)) {
                     grabOffset = position - groundPt;
                     movingBuilding = true;
@@ -498,7 +370,7 @@ int SceneView::handle(int event) {
 
             V3 origin, dir, groundPt;
             buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
-            if (rayHitGround(origin, dir, groundPt)) {
+            if (picking::rayHitGround(origin, dir, groundPt)) {
                 //New placement = ground point + the grab offset we stored, so the building keeps the same spot under the cursor.
                 //The controller snaps it to the grid and commits the move (which
                 //triggers our onChanged -> redraw).

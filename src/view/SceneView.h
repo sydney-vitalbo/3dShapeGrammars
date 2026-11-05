@@ -9,6 +9,7 @@
 #include "scene/Mesh.h"
 #include "scene/Primitives.h"
 #include "scene/SceneController.h" //the scene model this view renders + edits
+#include "view/TextureSet.h"       //material textures (loading + binding)
 #include "grammar/GrammarEngine.h" //mridu's engine + ShapeNode
 #include "grammar/ShapeNode.h" //mridu's ShapeNode
 
@@ -48,18 +49,6 @@ private:
     void drawGroundGrid();
 
     /**
-     * Load one image file (PNG) into an OpenGL texture and remember it for a
-     * given Material.
-     * (call once.. after the GL context exists)
-     */
-    void loadTexture(Material material, const char* path);
-
-    /**
-     * Load every building material's texture. Called once from the first draw().
-     */
-    void loadTextures();
-
-    /**
      * Draw the terminal shapes produced by the GrammarEngine
      */
     void drawGrammarScene();
@@ -72,17 +61,6 @@ private:
      *         outDir         (out) unit-length direction the ray travels
      */
     void buildSelectionRay(int mouseX, int mouseY, V3& outOrigin, V3& outDir);
-
-    /**
-     * Test whether the selection ray passes through a terminal
-     *
-     * params: origin,dir  the ray (from buildSelectionRay)
-     *         terminal    the terminal to test (uses its position, size, rotation)
-     *         outT        (out) distance from the camera to terminal
-     * returns true if the ray hits the terminal; use outT to find the closest hit
-     */
-    bool rayHitTerminal(const V3& origin, const V3& dir,
-                         const ShapeNode& terminal, float& outT) const;
 
     /**
      * Determine what did the user click?
@@ -98,15 +76,6 @@ private:
      */
     void drawSelectionHighlight();
 
-    /**
-     * Intersect a ray with the flat ground plane (y = 0)
-     * params: origin,dir  the ray (from buildSelectionRay)
-     *         outPoint    (out) where the ray meets the ground
-     * returns true if the ray actually meets the ground; false if it points up
-     *         or runs parallel to the ground (so no valid hit point)
-     */
-    bool rayHitGround(const V3& origin, const V3& dir, V3& outPoint) const;
-
     // The scene model this view renders and edits. Owned by main(), not by us.
     // Selection, placement, and the grid/engine all live here now.
     SceneController& controller;
@@ -115,9 +84,8 @@ private:
     bool glInitialized = false;
     bool texturesLoaded = false;
 
-    // One GL texture id per material (Material enum values index this array: None=0, Wood=1, Glass=2, Stone=3)
-    //0 means "no texture" -> use flat color
-    unsigned int materialTextures[4] = {0, 0, 0, 0};
+    // Material textures (PNG loading + per-terminal binding) live in their own unit.
+    TextureSet textures;
 
     //while a drag is in progress these track the move:
     bool movingBuilding = false; // true between grabbing and releasing the building
