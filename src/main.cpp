@@ -10,6 +10,7 @@
 #include <FL/fl_draw.H>
 
 #include "view/SceneView.h"
+#include "view/DerivationTreeView.h"
 #include "scene/SceneController.h"
 
 #include <cerrno>
@@ -160,7 +161,9 @@ int main(int argc, char** argv) {
     const Fl_Color muted = fl_rgb_color(112, 116, 123);
     const Fl_Color paper = fl_rgb_color(246, 247, 248);
     const Fl_Color line = fl_rgb_color(222, 224, 227);
-    const int winW = 1100, winH = 740, toolbarH = 60, sidePanelW = 300;
+    // Taller than Checkpoint 2 to make room for the derivation-tree panel below
+    // the editing controls (Checkpoint 3).
+    const int winW = 1100, winH = 880, toolbarH = 60, sidePanelW = 300;
     const int panelX = winW - sidePanelW, left = panelX + 24;
     Fl_Double_Window window(winW, winH, "3D Shape Grammars");
     window.color(paper);
@@ -271,6 +274,22 @@ int main(int argc, char** argv) {
     help->align(FL_ALIGN_LEFT | FL_ALIGN_TOP | FL_ALIGN_INSIDE);
     help->labelcolor(muted);
     help->labelsize(12);
+
+    // Derivation-tree panel... Lists the selected building's tree;
+    // clicking a node highlights its component in the 3D view.
+    auto* treeDivider = new Fl_Box(FL_FLAT_BOX, left, 704, 252, 1, "");
+    treeDivider->color(line);
+    auto* treeLabel = new Fl_Box(left, 716, 252, 18, "DERIVATION TREE");
+    treeLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    treeLabel->labelfont(FL_HELVETICA_BOLD);
+    treeLabel->labelsize(11);
+    treeLabel->labelcolor(muted);
+    auto* tree = new sg::DerivationTreeView(scene, left, 740, 252, winH - 740 - 20);
+    tree->box(fieldBox);
+    tree->color(FL_WHITE);
+    tree->labelsize(12);
+    tree->tooltip("Select a building, then click a node to highlight its component in 3D.");
+
     panel->resizable(nullptr);
     panel->end();
 
@@ -281,14 +300,20 @@ int main(int argc, char** argv) {
     apartment->callback(BuildingControls::apartmentClicked, &controls);
     apply->callback(BuildingControls::applyClicked, &controls);
     remove->callback(BuildingControls::deleteClicked, &controls);
-    // When the selection changes (via sidebar or a click in the 3D view), the
-    // sidebar refreshes its fields.
-    scene.onSelectionChanged([] { controls.syncSelection(); });
+    // When the selection changes (via sidebar or a click in the 3D view) -- and
+    // also after add/edit/delete, which re-select and thus fire this -- refresh
+    // both the sidebar fields and the derivation-tree panel so both follow the
+    // current building and its (possibly regenerated) tree.
+    scene.onSelectionChanged([tree] {
+        controls.syncSelection();
+        tree->refresh();
+    });
     controls.syncSelection();
+    tree->refresh();
 
     window.end();
     window.resizable(view);
-    window.size_range(1000, 700);
+    window.size_range(1000, 820); // tall enough to keep the sidebar + tree visible
     window.show(argc, argv);
     return Fl::run();
 }

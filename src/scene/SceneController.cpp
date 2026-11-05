@@ -34,6 +34,44 @@ void requireInsideGrid(AABB bounds, float limit) {
         bounds.minC[2] < -limit-1e-4f || bounds.maxC[2] > limit+1e-4f)
         throw std::invalid_argument("This size extends beyond the grid. Move the building inward or reduce its width/depth.");
 }
+
+// Follow a child-index path from `root` to the node it names, accumulating the
+// world transform as we descend (positions compose through each parent's
+// rotation, matching how the engine collects terminals). Returns the node, plus
+// its world position/rotation via the out-params. nullptr if the path is invalid.
+const ShapeNode* resolvePath(const ShapeNode& root, const std::vector<int>& path,
+                             V3& outWorldPos, M33& outWorldRot) {
+    const ShapeNode* node = &root;
+    V3 worldPos = root.position;          // root position is already world space
+    M33 worldRot = root.rotation;
+    for (int index : path) {
+        if (index < 0 || index >= static_cast<int>(node->children.size())) return nullptr;
+        const ShapeNode& child = node->children[index];
+        // childWorld = parentWorld + parentRot * childLocalPos; rotations compose.
+        worldPos = worldPos + worldRot * child.position;
+        worldRot = worldRot * child.rotation;
+        node = &child;
+    }
+    outWorldPos = worldPos;
+    outWorldRot = worldRot;
+    return node;
+}
+
+// World-space AABB of a node's whole subtree, given the node's own world pose.
+// Walks every descendant the same way the engine does, growing the box over the
+// rotated corners of each piece (terminal or not, so an unexpanded/nonterminal
+// scope still outlines sensibly).
+void growSubtreeBounds(const ShapeNode& node, V3 worldPos, M33 worldRot, AABB& bounds) {
+    V3 half = node.size; half = half * 0.5f;
+    M33 rot = worldRot;
+    for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
+        bounds.AddPoint(worldPos + rot * V3(x*half[0], y*half[1], z*half[2]));
+    for (const ShapeNode& child : node.children) {
+        V3 childPos = worldPos + rot * child.position;
+        M33 childRot = rot * child.rotation;
+        growSubtreeBounds(child, childPos, childRot, bounds);
+    }
+}
 } // namespace
 
 void SceneController::notifyChanged() {
@@ -129,6 +167,10 @@ void SceneController::selectBuilding(int buildingId) {
         throw std::invalid_argument("Building no longer exists.");
     if (selectedRootId == buildingId) return;
     selectedRootId = buildingId;
+    // A node highlight belongs to the previously selected building's tree, so it
+    // no longer applies once a different building (or nothing) is selected.
+    highlightActive = false;
+    highlightPath.clear();
     if (selectionChanged) selectionChanged();
     notifyChanged();
 }
@@ -161,6 +203,45 @@ bool SceneController::selectedBuildingBounds(AABB& outBounds) const {
     // Full geometry keeps the selected outline stable even when a join hides
     // a whole side (or another building completely contains this root).
     outBounds = terminalBounds(engine.TerminalsForRoot(*root));
+    return true;
+}
+
+const ShapeNode* SceneController::derivationRoot() const {
+    return engine.FindRoot(selectedRootId);
+}
+
+void SceneController::highlightNode(const std::vector<int>& path) {
+    const ShapeNode* root = engine.FindRoot(selectedRootId);
+    // Validate the path against the current tree; an unresolved path clears the
+    // highlight rather than leaving a stale box behind.
+    V3 pos; M33 rot;
+    if (root && resolvePath(*root, path, pos, rot) != nullptr) {
+        highlightPath = path;
+        highlightActive = true;
+    } else {
+        highlightPath.clear();
+        highlightActive = false;
+    }
+    notifyChanged();
+}
+
+void SceneController::clearNodeHighlight() {
+    if (!highlightActive && highlightPath.empty()) return;
+    highlightPath.clear();
+    highlightActive = false;
+    notifyChanged();
+}
+
+bool SceneController::highlightedNodeBounds(AABB& outBounds) const {
+    if (!highlightActive) return false;
+    const ShapeNode* root = engine.FindRoot(selectedRootId);
+    if (!root) return false;
+    V3 worldPos; M33 worldRot;
+    const ShapeNode* node = resolvePath(*root, highlightPath, worldPos, worldRot);
+    if (!node) return false;
+    AABB bounds;
+    growSubtreeBounds(*node, worldPos, worldRot, bounds);
+    outBounds = bounds;
     return true;
 }
 

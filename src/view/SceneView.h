@@ -70,11 +70,18 @@ private:
     bool pickComponent(int mouseX, int mouseY);
 
     /**
-     * Draw a highlight box around the whole selected building
-     *
-     * compute the building's bounding box and highlight it
+     * Draw the highlight outlines: a box around the whole selected building, and
+     * (for Checkpoint 3) a second box around the derivation-tree node the user
+     * picked in the tree panel, if any.
      */
     void drawSelectionHighlight();
+
+    /**
+     * 12 edges of a world-space box in a flat color, drawn on top of
+     * the scene so it reads as a highlight. Shared by the building outline and
+     * the derivation-node outline.
+     */
+    void drawOutline(const AABB& bounds, float r, float g, float b) const;
 
     // The scene model this view renders and edits. Owned by main(), not by us.
     // Selection, placement, and the grid/engine all live here now.

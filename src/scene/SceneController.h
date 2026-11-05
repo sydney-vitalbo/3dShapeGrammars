@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <vector>
 
 #include "scene/Primitives.h"          // GroundGrid
 #include "grammar/GrammarEngine.h"     // engine + ShapeNode
@@ -80,12 +81,38 @@ public:
     // the outline stays stable even when a shared wall is removed.
     bool selectedBuildingBounds(AABB& outBounds) const;
 
+    //derivation tree (Checkpoint 3):
+    //
+    // A node inside a building's derivation tree is addressed by its "path": the
+    // sequence of child indices from the selected building's root down to it. An empty path = the root itself.
+
+    // The selected building's root node, so the tree view can walk its children
+    // to build the list. Returns nullptr when nothing is selected.
+    const ShapeNode* derivationRoot() const;
+
+    // Ask the view to outline the node at `path` within the selected building.
+    // An out-of-range path clears the highlight. Fires onChanged so it repaints.
+    void highlightNode(const std::vector<int>& path);
+
+    // Stop highlighting any node (e.g. when the tree selection is cleared).
+    void clearNodeHighlight();
+
+    // World-space bounding box of the currently highlighted node's subtree, for
+    // the view's node outline. Returns false when no node is highlighted (or the
+    // path no longer resolves, e.g. after the building was regenerated).
+    bool highlightedNodeBounds(AABB& outBounds) const;
+
 private:
     GrammarEngine engine;              // all building trees + world terminals
     primitives::GroundGrid grid;       // ground reference grid + snap unit
 
     // Stable owner ID rather than a pointer into the roots vector.
     int selectedRootId = -1;
+
+    // Derivation-tree node to outline, as a child-index path from the selected
+    // building's root. Empty + highlightActive=false means "no node highlighted".
+    std::vector<int> highlightPath;
+    bool highlightActive = false;
 
     std::function<void()> selectionChanged; // -> refresh sidebar fields
     std::function<void()> changed;          // -> repaint the view

@@ -199,18 +199,35 @@ void SceneView::drawGrammarScene() {
     }
 }
 
-//draw highlight box around the whole selected building
+// Draw the selection outlines. Two layers:
+//   - amber box around the whole selected building, and
+//   - (Checkpoint 3) a cyan box around the derivation-tree node the user picked
+//     in the tree panel, if any. Both reuse drawOutline().
 void SceneView::drawSelectionHighlight() {
-    //the controller computes the selected building's world bounds for us
-    AABB bounds;
-    if (!controller.selectedBuildingBounds(bounds)) return;
+    AABB buildingBox;
+    if (controller.selectedBuildingBounds(buildingBox))
+        drawOutline(buildingBox, 1.0f, 0.85f, 0.25f); // amber = whole building
 
-    //2) pad the box slightly so the outline floats just outside
+    //node-level highlight: the tree panel tells the controller which node to
+    //outline; here we just ask for its world bounds and stroke them in a second
+    //color so it stands out against the building's amber box.
+    AABB nodeBox;
+    if (controller.highlightedNodeBounds(nodeBox))
+        drawOutline(nodeBox, 0.25f, 0.85f, 1.0f); // cyan = picked tree node
+}
+
+// Stroke the 12 edges of a world-space box in a flat color, on top of the scene.
+void SceneView::drawOutline(const AABB& bounds, float r, float g, float b) const {
+    //bounds is const, but V3's +/- operators are non-const members, so copy the
+    //corners into mutable locals before doing arithmetic on them
+    V3 minC = bounds.minC;
+    V3 maxC = bounds.maxC;
+    //pad the box slightly so the outline floats just outside the geometry
     const float pad = 0.03f;
-    V3 lo = bounds.minC - V3(pad, pad, pad);
-    V3 hi = bounds.maxC + V3(pad, pad, pad);
+    V3 lo = minC - V3(pad, pad, pad);
+    V3 hi = maxC + V3(pad, pad, pad);
 
-    //3) the 8 corners of that bounding box
+    //the 8 corners of that bounding box
     const V3 corners[8] = {
         V3(lo[0], lo[1], lo[2]), V3(hi[0], lo[1], lo[2]),
         V3(hi[0], hi[1], lo[2]), V3(lo[0], hi[1], lo[2]),
@@ -224,17 +241,17 @@ void SceneView::drawSelectionHighlight() {
         {0,4},{1,5},{2,6},{3,7}  // vertical pillars
     };
 
-    //4) color the edges of BB
+    //color the edges of the box
     glDisable(GL_LIGHTING);        // outline is a flat, constant color
     glDisable(GL_DEPTH_TEST);      // draw on top so the border is never hidden
-    glColor3f(1.0f, 0.85f, 0.25f); // highlight
+    glColor3f(r, g, b);
     glLineWidth(2.0f);             // a bit thicker
     glBegin(GL_LINES);
     for (const auto& e : edges) {
         V3 a = corners[e[0]];
-        V3 b = corners[e[1]];
+        V3 b2 = corners[e[1]];
         glVertex3f(a[0], a[1], a[2]);
-        glVertex3f(b[0], b[1], b[2]);
+        glVertex3f(b2[0], b2[1], b2[2]);
     }
     glEnd();
     glLineWidth(1.0f);             // restore default line width
