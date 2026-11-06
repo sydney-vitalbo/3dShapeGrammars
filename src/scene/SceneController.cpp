@@ -27,6 +27,27 @@ AABB terminalBounds(const std::vector<ShapeNode>& terminals, int buildingId = -1
     return bounds;
 }
 
+// Structural root bounds are the boxes used by GrammarEngine joining. Facade
+// projections are deliberately excluded so they may extend over a neighbour
+// without being treated as intersecting building volumes.
+AABB rootBoundsAt(const ShapeNode& root, V3 position) {
+    AABB bounds;
+    V3 size = root.size;
+    M33 rotation = root.rotation;
+    for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
+        bounds.AddPoint(position + rotation *
+            V3(x*size[0]/2, y*size[1]/2, z*size[2]/2));
+    return bounds;
+}
+
+bool volumeOverlap(AABB a, AABB b) {
+    constexpr float epsilon = 1e-4f;
+    for (int axis = 0; axis < 3; ++axis)
+        if (std::min(a.maxC[axis], b.maxC[axis]) -
+            std::max(a.minC[axis], b.minC[axis]) <= epsilon) return false;
+    return true;
+}
+
 // Reject a building whose footprint reaches past the grid, with a small epsilon
 // so a building sitting exactly on the edge is still allowed.
 void requireInsideGrid(AABB bounds, float limit) {
@@ -269,12 +290,81 @@ V3 SceneController::snapToGrid(const V3& point) const {
     sx = std::max(minX, std::min(maxX, sx));
     sz = std::max(minZ, std::min(maxZ, sz));
 
+    // A snapped request may land inside another structural root. Push it to the
+    // nearest horizontal face, preferring the side from which it approached.
+    // Repeat because resolving one obstruction can encounter another building.
+    const float requestedX = sx, requestedZ = sz;
+    AABB oldBounds = rootBoundsAt(*root, rootPosition);
+    const int maxCorrections = std::max(1, static_cast<int>(engine.roots.size()) * 4);
+    for (int pass = 0; pass < maxCorrections; ++pass) {
+        bool corrected = false;
+        for (const ShapeNode& other : engine.roots) {
+            if (other.buildingId == selectedRootId) continue;
+            AABB moving = rootBoundsAt(*root, V3(sx, p[1], sz));
+            V3 otherPosition = other.position;
+            AABB obstacle = rootBoundsAt(other, otherPosition);
+            if (!volumeOverlap(moving, obstacle)) continue;
+
+            struct Candidate { float value; bool xAxis; float distance; };
+            std::vector<Candidate> candidates;
+            auto addX = [&](float value) {
+                if (value >= minX-1e-4f && value <= maxX+1e-4f)
+                    candidates.push_back({value, true, std::fabs(value-requestedX)});
+            };
+            auto addZ = [&](float value) {
+                if (value >= minZ-1e-4f && value <= maxZ+1e-4f)
+                    candidates.push_back({value, false, std::fabs(value-requestedZ)});
+            };
+            const float left = sx + obstacle.minC[0] - moving.maxC[0];
+            const float right = sx + obstacle.maxC[0] - moving.minC[0];
+            const float back = sz + obstacle.minC[2] - moving.maxC[2];
+            const float front = sz + obstacle.maxC[2] - moving.minC[2];
+
+            // When the old box identifies an approach side, do not tunnel
+            // through the obstacle merely because its far face is now nearer.
+            if (oldBounds.maxC[0] <= obstacle.minC[0]+1e-4f) addX(left);
+            if (oldBounds.minC[0] >= obstacle.maxC[0]-1e-4f) addX(right);
+            if (oldBounds.maxC[2] <= obstacle.minC[2]+1e-4f) addZ(back);
+            if (oldBounds.minC[2] >= obstacle.maxC[2]-1e-4f) addZ(front);
+            if (candidates.empty()) {
+                addX(left); addX(right); addZ(back); addZ(front);
+            }
+            if (candidates.empty()) return rootPosition;
+            const Candidate best = *std::min_element(candidates.begin(), candidates.end(),
+                [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
+            if (best.xAxis) sx = best.value; else sz = best.value;
+            corrected = true;
+            break;
+        }
+        if (!corrected) return V3(sx, p[1], sz);
+    }
+
+    // A crowded arrangement could make iterative corrections oscillate. Keep
+    // the last valid placement instead of committing a volume intersection.
+    for (const ShapeNode& other : engine.roots) {
+        if (other.buildingId == selectedRootId) continue;
+        V3 otherPosition = other.position;
+        if (volumeOverlap(rootBoundsAt(*root, V3(sx,p[1],sz)),
+                          rootBoundsAt(other, otherPosition))) return rootPosition;
+    }
+
     return V3(sx, p[1], sz);
 }
 
 void SceneController::moveSelectedTo(const V3& position) {
     if (selectedRootId < 0) return;
+    const ShapeNode* root = engine.FindRoot(selectedRootId);
+    if (!root) return;
+    V3 current = root->position;
+    V3 next = position;
+    if (current[0] == next[0] && current[1] == next[1] && current[2] == next[2]) return;
+
     engine.MoveRoot(selectedRootId, position);
+    // Joining can add/remove temporary split-wall children, so the selected
+    // building's derivation tree and child-index paths may have changed.
+    highlightActive = false;
+    highlightPath.clear();
+    if (selectionChanged) selectionChanged();
     notifyChanged();
 }
 

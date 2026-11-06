@@ -46,7 +46,19 @@ one width boundary and one height boundary produces four wall terminals
 (plus the two retained beams on front/back slabs). Slabs wholly above or below
 the neighbour remain intact.
 
-Facade and bay subtrees still use whole-face disabling. Oblique rotations
+At a roof-to-floor wall join, roof parapet pieces take priority: the roof piece
+stays visible and the overlapping floor-wall portion is disabled. Roof pieces
+are removed only where the neighbour also has a roof. Each root overlap record
+includes the neighbour's roof-start elevation, and traversal carries roof
+ancestry, avoiding comparisons between individual terminal pairs. Existing
+front/back edge-beam retention still applies to roof-to-roof removal.
+
+WallRegion and facade containers stay enabled. Each Bay and Entrance is disabled
+only when its world AABB (scope plus generated details) has positive overlap
+with a removed wall rectangle along the wall and vertically. Depth is projected
+away because facade details sit outside the wall thickness. Any partial overlap
+hides the entire bay/entrance subtree; boundary-only contact leaves it visible.
+Separation restores these components. Oblique rotations
 retain the previous whole-face behaviour. Rotated-root
 AABBs are conservative; intersecting solids are not converted into a Boolean
 mesh union.

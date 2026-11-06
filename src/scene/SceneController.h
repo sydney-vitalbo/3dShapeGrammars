@@ -58,12 +58,13 @@ public:
 
     //dragging (placement policy used by SceneView while moving):
 
-    // Snap a proposed ground point to the grid and clamp it so the selected
-    // building stays fully inside the grid. Returns the point unchanged when
-    // nothing is selected.
+    // Snap a proposed ground point to the grid, keep the selected building
+    // inside it, and resolve structural volume overlaps to surface contact.
+    // Returns the point unchanged when nothing is selected.
     V3 snapToGrid(const V3& point) const;
 
-    // Move the selected building to a ground placement (already snapped).
+    // Move the selected building to a ground placement (already snapped), then
+    // refresh selection-dependent UI because joining may change its tree.
     void moveSelectedTo(const V3& position);
 
     //read access for rendering + picking (used by SceneView:

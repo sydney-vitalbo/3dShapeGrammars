@@ -23,6 +23,7 @@ struct SharedWallSpan {
     unsigned face; // World face bit; interval runs along X for front/back, Z for sides.
     float min, max;
     float minY, maxY; // World-space vertical extent of the covered rectangle.
+    float roofMinY; // Neighbour's roof starts here; below it are floor slabs.
 };
 
 struct RootJoinState {

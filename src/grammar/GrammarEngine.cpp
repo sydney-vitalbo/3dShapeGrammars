@@ -68,6 +68,28 @@ unsigned worldFace(BuildingFace face, M33 rotation) {
     const unsigned positive[] = {1, 4, 16}, negative[] = {2, 8, 32};
     return normal[axis] >= 0 ? positive[axis] : negative[axis];
 }
+
+// Include the bay scope and its generated details (including projecting balconies).
+// Bounds are temporary; spatial metadata remains on scene roots only.
+void growComponentBounds(const ShapeNode& node, V3 position, M33 rotation, AABB& bounds) {
+    V3 size = node.size;
+    for (int x : {-1,1}) for (int y : {-1,1}) for (int z : {-1,1})
+        bounds.AddPoint(position + rotation * V3(x*size[0]/2,y*size[1]/2,z*size[2]/2));
+    for (const auto& child : node.children)
+        growComponentBounds(child,position + rotation*child.position,rotation*child.rotation,bounds);
+}
+
+bool overlapsRemovedWall(AABB bounds, unsigned face, const std::vector<SharedWallSpan>& spans) {
+    const int tangent = face <= 2 ? 2 : 0;
+    for (const auto& span : spans) if (span.face == face) {
+        // Compare along the wall and vertically. Depth is deliberately projected
+        // away: windows/balconies sit outside the slab's physical thickness.
+        if (std::min(bounds.maxC[tangent],span.max)-std::max(bounds.minC[tangent],span.min) > joinEpsilon &&
+            std::min(bounds.maxC[1],span.maxY)-std::max(bounds.minC[1],span.minY) > joinEpsilon)
+            return true;
+    }
+    return false;
+}
 } // namespace
 
 GrammarEngine::GrammarEngine() {
@@ -196,8 +218,8 @@ void GrammarEngine::UpdateJoins() {
                     const int tangent = face <= 2 ? 2 : 0;
                     const float lo = std::max(a.minC[tangent], b.minC[tangent]);
                     const float hi = std::min(a.maxC[tangent], b.maxC[tangent]);
-                    if (ab & face) spans[i].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1])});
-                    if (ba & face) spans[j].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1])});
+                    if (ab & face) spans[i].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1]),b.maxC[1]-building_rules::roofHeight});
+                    if (ba & face) spans[j].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1]),a.maxC[1]-building_rules::roofHeight});
                 }
             }
         }
@@ -216,7 +238,9 @@ void GrammarEngine::UpdateJoins() {
 
 void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
                                    const std::vector<SharedWallSpan>& spans,
-                                   V3 parentPose, M33 parentRotation, bool parentDisabled) {
+                                   V3 parentPose, M33 parentRotation, bool parentDisabled,
+                                   unsigned facadeFace, bool inRoof) {
+    inRoof = inRoof || node.symbol == Symbol::Roof;
     const V3 worldPosition = parentPose + parentRotation * node.position;
     M33 worldRotation = parentRotation * node.rotation;
     const unsigned face = worldFace(node.exteriorFace, rootRotation);
@@ -250,7 +274,10 @@ void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootR
                 float hi = (span.max-center[worldAxis])/tangent[worldAxis];
                 if (lo > hi) std::swap(lo,hi);
                 lo = std::max(lo,-length/2); hi = std::min(hi,length/2);
-                const float bottom = std::max(span.minY-center[1],-height/2);
+                // Roof pieces yield only to other roof pieces. Against a floor
+                // slab, preserve this roof and let the floor's normal cut hide it.
+                const float coveredBottom = inRoof ? std::max(span.minY,span.roofMinY) : span.minY;
+                const float bottom = std::max(coveredBottom-center[1],-height/2);
                 const float top = std::min(span.maxY-center[1],height/2);
                 if (hi-lo > joinEpsilon && top-bottom > joinEpsilon)
                     covered.push_back({lo,hi,bottom,top});
@@ -304,9 +331,21 @@ void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootR
         node.isTerminal=false;
         node.joinSplit=true;
     }
-    node.disabled = parentDisabled || worldMask == allBuildingFaces || (faceCovered && !node.joinSplit);
+    // Keep the facade hierarchy traversable and decide visibility per complete
+    // bay/entrance, rather than disabling the entire WallRegion subtree.
+    const bool wallRegion = node.symbol == Symbol::WallRegion;
+    if (wallRegion) facadeFace = face;
+    bool componentCovered = false;
+    if (facadeFace && (worldMask & facadeFace) &&
+        (node.symbol == Symbol::Bay || node.symbol == Symbol::Entrance)) {
+        AABB bounds;
+        growComponentBounds(node,worldPosition,worldRotation,bounds);
+        componentCovered = overlapsRemovedWall(bounds,facadeFace,spans);
+    }
+    node.disabled = parentDisabled || worldMask == allBuildingFaces || componentCovered ||
+        (faceCovered && !node.joinSplit && !wallRegion);
     if (!node.joinSplit) for (ShapeNode& child : node.children)
-        ApplyJoinMask(child,worldMask,rootRotation,spans,worldPosition,worldRotation,node.disabled);
+        ApplyJoinMask(child,worldMask,rootRotation,spans,worldPosition,worldRotation,node.disabled,facadeFace,inRoof);
 }
 
 // generate grammar tree for a given preset
