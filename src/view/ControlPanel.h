@@ -62,6 +62,7 @@ private:
     static void apartmentClicked(Fl_Widget*, void* self);
     static void applyClicked(Fl_Widget*, void* self);
     static void deleteClicked(Fl_Widget*, void* self);
+    static void detachClicked(Fl_Widget*, void* self);
 
     SceneController& scene;
 
@@ -71,9 +72,11 @@ private:
     Fl_Int_Input* bays = nullptr;
     Fl_Float_Input* width = nullptr;
     Fl_Float_Input* depth = nullptr;
+    Fl_Float_Input* floorHeight = nullptr;
     Fl_Check_Button* balconies = nullptr;
     Fl_Button* applyButton = nullptr;
     Fl_Button* deleteButton = nullptr;
+    Fl_Button* detachButton = nullptr;
     Fl_Box* status = nullptr;
     DerivationTreeView* tree = nullptr;
 

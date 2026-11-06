@@ -392,7 +392,18 @@ int SceneView::handle(int event) {
                 //The controller snaps it to the grid and commits the move (which
                 //triggers our onChanged -> redraw).
                 V3 placement = groundPt + grabOffset;
-                controller.moveSelectedTo(controller.snapToGrid(placement));
+                V3 snapped=controller.snapToGrid(placement);
+                const auto* before=controller.derivationRoot();
+                const int oldId=controller.selectedBuildingId();
+                const size_t oldMembers=before && before->symbol==Symbol::JoinedUnit ? before->children.size() : 1;
+                controller.moveSelectedTo(snapped);
+                const auto* after=controller.derivationRoot();
+                const size_t newMembers=after && after->symbol==Symbol::JoinedUnit ? after->children.size() : 1;
+                if(oldId!=controller.selectedBuildingId() || oldMembers!=newMembers) {
+                    V3 unitPosition;
+                    if(controller.selectedRootPosition(unitPosition))
+                        grabOffset=grabOffset+(unitPosition-snapped);
+                }
             }
         } else if (dragging) {
             //pixels -> degrees

@@ -103,7 +103,7 @@ ControlPanel::ControlPanel(SceneController& scene, int x, int y, int w, int h)
     heading->labelfont(FL_HELVETICA_BOLD);
     heading->labelsize(17);
     heading->labelcolor(ink);
-    auto* floorHint = new Fl_Box(left, 198, 252, 20, "Floor height fixed at 1.5 units");
+    auto* floorHint = new Fl_Box(left, 198, 252, 20, "Shared settings apply to each member");
     floorHint->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
     floorHint->labelsize(12);
     floorHint->labelcolor(muted);
@@ -114,7 +114,8 @@ ControlPanel::ControlPanel(SceneController& scene, int x, int y, int w, int h)
     bays->tooltip("Repeated facade sections per upper floor. Ground-floor windows adapt around the entrance.");
     width = new Fl_Float_Input(left, 336, 120, 36, "Width (4-12)");
     depth = new Fl_Float_Input(left + 132, 336, 120, 36, "Depth (2-8)");
-    for (Fl_Input* input : std::initializer_list<Fl_Input*>{floors, bays, width, depth}) {
+    floorHeight = new Fl_Float_Input(left, 402, 120, 30, "Floor height (1.2-3)");
+    for (Fl_Input* input : std::initializer_list<Fl_Input*>{floors, bays, width, depth,floorHeight}) {
         input->box(fieldBox);
         input->color(FL_WHITE);
         input->labelcolor(muted);
@@ -126,13 +127,13 @@ ControlPanel::ControlPanel(SceneController& scene, int x, int y, int w, int h)
         input->cursor_color(ink);
         input->selection_color(ink);
     }
-    balconies = new Fl_Check_Button(left, 392, 252, 28, "Apartment balconies");
+    balconies = new Fl_Check_Button(left+128, 402, 124, 28, "Balconies");
     balconies->color(paper);
     balconies->down_box(fieldBox);
     balconies->selection_color(ink);
     balconies->labelcolor(ink);
     balconies->labelsize(13);
-    balconies->tooltip("Balconies appear only on upper front apartment floors.");
+    balconies->tooltip("Enable or disable upper-front apartment balconies, then click Apply changes. Joined/hidden bays stay hidden.");
 
     applyButton = new Fl_Button(left, 438, 252, 40, "Apply changes");
     applyButton->box(FL_FLAT_BOX);
@@ -143,7 +144,9 @@ ControlPanel::ControlPanel(SceneController& scene, int x, int y, int w, int h)
     applyButton->labelfont(FL_HELVETICA_BOLD);
     applyButton->labelsize(13);
     applyButton->shortcut(FL_CTRL + FL_Enter);
-    deleteButton = new Fl_Button(left, 488, 252, 32, "Delete selected");
+    deleteButton = new Fl_Button(left, 488, 122, 32, "Delete selected");
+    detachButton = new Fl_Button(left+130,488,122,32,"Detach member");
+    detachButton->tooltip("Click a member or its descendant in the derivation tree, then detach it from the unit.");
     deleteButton->box(fieldBox);
     deleteButton->down_box(FL_FLAT_BOX);
     deleteButton->color(paper);
@@ -190,6 +193,7 @@ ControlPanel::ControlPanel(SceneController& scene, int x, int y, int w, int h)
     apartment->callback(apartmentClicked, this);
     applyButton->callback(applyClicked, this);
     deleteButton->callback(deleteClicked, this);
+    detachButton->callback(detachClicked,this);
 
     // Follow the selection: when it changes (via sidebar OR a click in the 3D
     // view) -- and after add/edit/delete, which re-select -- refresh the fields
@@ -207,12 +211,19 @@ void ControlPanel::message(const std::string& text, bool error) {
 void ControlPanel::syncSelection() {
     building_rules::Parameters parameters;
     const bool selected = scene.getSelectedBuilding(apartmentActive, parameters);
-    Fl_Widget* fields[] = {floors, bays, width, depth, balconies, applyButton, deleteButton};
+    Fl_Widget* fields[] = {floors, bays, width, depth, floorHeight, balconies, applyButton, deleteButton};
     for (Fl_Widget* field : fields) {
         if (selected) field->activate(); else field->deactivate();
     }
     // The tree always follows the current selection (empty when none).
     tree->refresh();
+    bool widthLocked=false,depthLocked=false;
+    const bool unit=scene.selectedUnitLocks(widthLocked,depthLocked);
+    deleteButton->copy_label(unit ? "Delete unit" : "Delete selected");
+    deleteButton->tooltip(unit ? "Delete the entire unit and all its members." : "Remove the selected building from the scene.");
+    if(unit) detachButton->activate(); else detachButton->deactivate();
+    if(widthLocked) width->deactivate();
+    if(depthLocked) depth->deactivate();
     if (!selected) {
         heading->copy_label("Select a building");
         message("Click a building to edit it, or add a preset using the buttons above.");
@@ -227,9 +238,10 @@ void ControlPanel::syncSelection() {
     setNumber(bays, parameters.bays);
     setNumber(width, parameters.width);
     setNumber(depth, parameters.depth);
+    setNumber(floorHeight,parameters.floorHeight);
     balconies->value(parameters.balconies);
     if (!apartmentActive) balconies->deactivate();
-    const std::string name = std::string(apartmentActive ? "Apartment #" : "Office #")
+    const std::string name = std::string(unit ? "Joined unit #" : apartmentActive ? "Apartment #" : "Office #")
         + std::to_string(scene.selectedBuildingId()+1);
     heading->copy_label((name + " parameters").c_str());
     message(name + " selected.\nEdit fields, then Apply changes.");
@@ -254,15 +266,17 @@ void ControlPanel::loadPreset(bool apartment) {
 
 void ControlPanel::apply() {
     try {
+        bool lockWidth=false,lockDepth=false;
+        const bool unit=scene.selectedUnitLocks(lockWidth,lockDepth);
         building_rules::Parameters parameters;
         parameters.floors = int(readNumber(*floors, "Floors", 1, 12, true));
         parameters.bays = int(readNumber(*bays, "Upper-floor bays", 2, 8, true));
         parameters.width = float(readNumber(*width, "Width", 4, 12, false));
         parameters.depth = float(readNumber(*depth, "Depth", 2, 8, false));
-        parameters.floorHeight = 1.5f; // Keep both families on the same floor grid.
+        parameters.floorHeight = float(readNumber(*floorHeight,"Floor height",1.2,3,false));
         parameters.balconies = apartmentActive && balconies->value();
         const auto count = scene.setBuilding(apartmentActive, parameters);
-        message(std::string(apartmentActive ? "Apartment" : "Office") +
+        message(std::string(unit ? "Joined unit" : apartmentActive ? "Apartment" : "Office") +
                 " updated.\n" + std::to_string(parameters.floors) + " floors, " +
                 std::to_string(parameters.bays) + " upper-floor bays.\n" +
                 std::to_string(count) + " pieces.");
@@ -287,6 +301,12 @@ void ControlPanel::applyClicked(Fl_Widget*, void* self) {
 }
 void ControlPanel::deleteClicked(Fl_Widget*, void* self) {
     static_cast<ControlPanel*>(self)->deleteSelected();
+}
+void ControlPanel::detachClicked(Fl_Widget*, void* self) {
+    auto* panel=static_cast<ControlPanel*>(self);
+    if(panel->scene.detachHighlightedBuilding())
+        panel->message("Member detached. Drag it away to separate the buildings.");
+    else panel->message("Select a member in the derivation tree first.",true);
 }
 
 } // namespace sg

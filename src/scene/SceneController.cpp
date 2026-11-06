@@ -152,6 +152,39 @@ std::size_t SceneController::addBuilding(bool apartment, const building_rules::P
 std::size_t SceneController::setBuilding(bool apartment, const building_rules::Parameters& parameters) {
     const ShapeNode* current = engine.FindRoot(selectedRootId);
     if (!current) throw std::invalid_argument("Select a building before applying changes.");
+    if (current->symbol==Symbol::JoinedUnit) {
+        ShapeNode unit;
+        unit.symbol=Symbol::JoinedUnit;
+        unit.buildingId=current->buildingId;
+        unit.position=current->position;
+        unit.rotation=current->rotation;
+        unit.size=current->size;
+        unit.lockWidth=current->lockWidth;
+        unit.lockDepth=current->lockDepth;
+        const int anchor=current->children.front().buildingId;
+        unit.children.reserve(current->children.size());
+        for(const auto& member:current->children) {
+            building_rules::Parameters p=parameters;
+            V3 oldSize=member.size,oldPosition=member.position;
+            if(unit.lockWidth) p.width=oldSize[0];
+            if(unit.lockDepth) p.depth=oldSize[2];
+            ShapeNode replacement=building_rules::buildingRoot(p,member.symbol==Symbol::Apartment);
+            replacement.buildingId=member.buildingId;
+            replacement.position=V3(oldPosition[0],oldPosition[1]-oldSize[1]/2+replacement.size[1]/2,oldPosition[2]);
+            replacement.rotation=member.rotation;
+            engine.GenerateTree(&replacement);
+            unit.children.push_back(std::move(replacement));
+        }
+        const auto pieces=engine.TerminalsForRoot(unit);
+        requireInsideGrid(terminalBounds(pieces),grid.halfExtent);
+        const auto count=pieces.size();
+        engine.ReplaceRoot(selectedRootId,std::move(unit));
+        selectedRootId=engine.SceneRootId(anchor);
+        highlightActive=false;highlightPath.clear();
+        if(selectionChanged) selectionChanged();
+        notifyChanged();
+        return count;
+    }
     // Build a candidate with the same placement/orientation. Commit only after
     // validation, preserving every other root and its generated geometry.
     ShapeNode root = apartment ? building_rules::makeApartment(parameters)
@@ -164,6 +197,7 @@ std::size_t SceneController::setBuilding(bool apartment, const building_rules::P
     const auto pieces = engine.TerminalsForRoot(root);
     requireInsideGrid(terminalBounds(pieces), grid.halfExtent);
     engine.ReplaceRoot(selectedRootId, std::move(root));
+    selectedRootId=engine.SceneRootId(selectedRootId);
     // The tree was regenerated, so tree panel reselects nothing after refresh()
     highlightActive = false;
     highlightPath.clear();
@@ -175,18 +209,54 @@ std::size_t SceneController::setBuilding(bool apartment, const building_rules::P
 bool SceneController::getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const {
     const ShapeNode* root = engine.FindRoot(selectedRootId);
     if (!root) return false;
+    bool anyApartment=false,anyBalconies=false;
+    if(root->symbol==Symbol::JoinedUnit) {
+        for(const auto& member:root->children) if(member.symbol==Symbol::Apartment) {
+            anyApartment=true;
+            anyBalconies=anyBalconies || member.building.balconies;
+        }
+        if(root->children.empty()) return false;
+        root=&root->children.front();
+    }
     V3 size = root->size;
-    apartment = root->symbol == Symbol::Apartment;
+    apartment = anyApartment || root->symbol == Symbol::Apartment;
     parameters.floors = root->building.floors;
     parameters.bays = root->building.bays;
     parameters.width = size[0];
     parameters.depth = size[2];
     parameters.floorHeight = (size[1]-building_rules::roofHeight) / parameters.floors;
-    parameters.balconies = root->building.balconies;
+    parameters.balconies = anyApartment ? anyBalconies : root->building.balconies;
     return true;
 }
 
+bool SceneController::selectedUnitLocks(bool& widthLocked,bool& depthLocked) const {
+    const auto* root=engine.FindRoot(selectedRootId);
+    widthLocked=root && root->lockWidth;
+    depthLocked=root && root->lockDepth;
+    return root && root->symbol==Symbol::JoinedUnit;
+}
+
+bool SceneController::detachBuilding(int buildingId) {
+    if(!engine.DetachBuilding(buildingId)) return false;
+    selectedRootId=buildingId;
+    highlightActive=false;highlightPath.clear();
+    if(selectionChanged) selectionChanged();
+    notifyChanged();
+    return true;
+}
+
+bool SceneController::detachHighlightedBuilding() {
+    const auto* root=engine.FindRoot(selectedRootId);
+    if(!root || root->symbol!=Symbol::JoinedUnit || !highlightActive || highlightPath.empty()) return false;
+    const int index=highlightPath.front();
+    if(index<0 || index>=static_cast<int>(root->children.size())) return false;
+    return detachBuilding(root->children[index].buildingId);
+}
+
 void SceneController::selectBuilding(int buildingId) {
+    if(buildingId!=-1 && !engine.FindRoot(buildingId))
+        throw std::invalid_argument("Building no longer exists.");
+    if(buildingId!=-1) buildingId=engine.SceneRootId(buildingId);
     if (buildingId != -1 && !engine.FindRoot(buildingId))
         throw std::invalid_argument("Building no longer exists.");
     if (selectedRootId == buildingId) return;
@@ -224,6 +294,10 @@ bool SceneController::selectedRootPosition(V3& outPosition) const {
 bool SceneController::selectedBuildingBounds(AABB& outBounds) const {
     const ShapeNode* root = engine.FindRoot(selectedRootId);
     if (!root) return false;
+    if(root->symbol==Symbol::JoinedUnit && root->rootJoin) {
+        outBounds=root->rootJoin->bounds;
+        return true;
+    }
     // Full geometry keeps the selected outline stable even when a join hides
     // a whole side (or another building completely contains this root).
     outBounds = terminalBounds(engine.TerminalsForRoot(*root));
@@ -359,7 +433,9 @@ void SceneController::moveSelectedTo(const V3& position) {
     V3 next = position;
     if (current[0] == next[0] && current[1] == next[1] && current[2] == next[2]) return;
 
+    const int anchor=root->symbol==Symbol::JoinedUnit ? root->children.front().buildingId : selectedRootId;
     engine.MoveRoot(selectedRootId, position);
+    selectedRootId=engine.SceneRootId(anchor);
     // Joining can add/remove temporary split-wall children, so the selected
     // building's derivation tree and child-index paths may have changed.
     highlightActive = false;

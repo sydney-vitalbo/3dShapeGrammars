@@ -38,6 +38,9 @@ public:
     // Read the selected building's family + parameters back out (for the sidebar
     // fields). Returns false when nothing is selected.
     bool getSelectedBuilding(bool& apartment, building_rules::Parameters& parameters) const;
+    bool selectedUnitLocks(bool& widthLocked, bool& depthLocked) const;
+    bool detachBuilding(int buildingId);
+    bool detachHighlightedBuilding();
 
     // Remove the selected building (restoring any walls its neighbours had
     // hidden). Returns true if a building was actually removed.

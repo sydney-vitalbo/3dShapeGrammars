@@ -44,9 +44,9 @@ private:
     // keep the vectors alive here and free them when the tree is rebuilt.
     std::vector<std::vector<int>*> itemPaths;
 
-    // Recursively add `node` (reached by `path`) and its children under `parent`.
+    // Recursively add nodes under item pointers; repeated labels need no IDs.
     void addNode(const ShapeNode& node, const std::vector<int>& path,
-                 const std::string& parentPath);
+                 Fl_Tree_Item* parent, int typeIndex = 1);
 
     // Free every path we allocated for the previous tree contents.
     void clearItemPaths();

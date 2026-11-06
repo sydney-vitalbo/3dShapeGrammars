@@ -6,6 +6,7 @@
 #include <FL/Fl_Tree_Item.H>
 
 #include <string>
+#include <map>
 
 namespace sg {
 
@@ -25,6 +26,7 @@ const char* symbolName(Symbol symbol) {
     case Symbol::Facade:     return "Facade";
     case Symbol::Window:     return "Window";
     case Symbol::Slab:       return "Slab";
+    case Symbol::JoinedUnit: return "Joined unit";
     }
     return "Node";
 }
@@ -45,19 +47,14 @@ void DerivationTreeView::clearItemPaths() {
     itemPaths.clear();
 }
 
-// Fl_Tree addresses items by a '/'-separated string path that must be UNIQUE
-// among siblings. Node symbols repeat (many "Floor"s, "Bay"s, ...), so we append
-// the child index (e.g. "Floor #2") to keep each item path distinct. The real
-// node identity we care about -- the child-index route -- is stored separately
-// as the item's user_data for the click handler.
+// Add directly to parent items so identical sibling labels stay distinct.
+// Child-index paths in user_data identify nodes for highlighting/detachment.
 void DerivationTreeView::addNode(const ShapeNode& node, const std::vector<int>& path,
-                                 const std::string& parentPath) {
-    // Build this item's display/addressing segment.
-    std::string segment = symbolName(node.symbol);
-    if (!path.empty()) segment += " #" + std::to_string(path.back() + 1);
-    const std::string itemPath = parentPath.empty() ? segment : parentPath + "/" + segment;
-
-    Fl_Tree_Item* item = add(itemPath.c_str());
+                                 Fl_Tree_Item* parent, int typeIndex) {
+    std::string label=symbolName(node.symbol);
+    if(!path.empty()) label += " " + std::to_string(typeIndex);
+    Fl_Tree_Item* item = parent ? add(parent,label.c_str()) : add(label.c_str());
+    if (!item) return;
     if (item) {
         // Remember the child-index route to this node so a click can highlight it.
         auto* stored = new std::vector<int>(path);
@@ -65,12 +62,15 @@ void DerivationTreeView::addNode(const ShapeNode& node, const std::vector<int>& 
         item->user_data(stored);
     }
 
-    // Recurse into children, extending the path with each child's index.
+    // Display numbering starts at 1 separately for each sibling symbol.
+    // Actual child-index paths remain unchanged for highlighting/detachment.
+    std::map<Symbol,int> counts;
     for (std::size_t i = 0; i < node.children.size(); ++i) {
         std::vector<int> childPath = path;
         childPath.push_back(static_cast<int>(i));
-        addNode(node.children[i], childPath, itemPath);
+        addNode(node.children[i], childPath, item, ++counts[node.children[i].symbol]);
     }
+    close(item,0); // Start every branch collapsed, without selection callbacks.
 }
 
 void DerivationTreeView::refresh() {
@@ -85,7 +85,7 @@ void DerivationTreeView::refresh() {
     }
 
     // The empty path addresses the root itself; children extend it by index.
-    addNode(*root, std::vector<int>{}, std::string());
+    addNode(*root, std::vector<int>{}, nullptr);
     redraw();
 }
 

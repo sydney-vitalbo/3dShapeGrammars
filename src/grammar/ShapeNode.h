@@ -6,7 +6,7 @@
 
 enum class Symbol {
     Facade, Window, Slab,
-    Office, Apartment, Floor, WallRegion, BayGroup, Bay, Entrance, Balcony, Roof,
+    Office, Apartment, Floor, WallRegion, BayGroup, Bay, Entrance, Balcony, Roof, JoinedUnit,
 };
 
 enum class Material {
@@ -46,7 +46,7 @@ struct BuildingContext {
 
 struct ShapeNode {
     int id = -1;
-    int buildingId = -1; // Owning root, stable when roots grows/reallocates.
+    int buildingId = -1; // Stable building/unit ID; collected copies use the selectable root ID.
     Symbol symbol = Symbol::Slab;
     Material material = Material::None;
 
@@ -56,11 +56,13 @@ struct ShapeNode {
 
     BuildingContext building;
 
-    // Populated only for scene roots, never inherited by child nodes.
+    // Populated for building roots and JoinedUnit roots, never grammar components.
     std::optional<RootJoinState> rootJoin;
     BuildingFace exteriorFace = BuildingFace::None;
     bool disabled = false; // Derived from root joining; reset on separation.
     bool joinSplit = false; // Temporary shared/exposed slab split; restored on separation.
+    bool detachedFromUnit = false; // Suppress regrouping until this building separates.
+    bool lockWidth = false, lockDepth = false; // JoinedUnit parameter constraints.
 
     bool isTerminal = false;
     std::vector<ShapeNode> children;

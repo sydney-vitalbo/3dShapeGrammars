@@ -139,19 +139,66 @@ int GrammarEngine::AddRoot(ShapeNode root) {
 }
 
 const ShapeNode* GrammarEngine::FindRoot(int buildingId) const {
-    for (const ShapeNode& root : roots)
+    for (const ShapeNode& root : roots) {
         if (root.buildingId == buildingId) return &root;
+        if (root.symbol == Symbol::JoinedUnit)
+            for (const auto& member : root.children)
+                if (member.buildingId == buildingId) return &member;
+    }
     return nullptr;
+}
+
+int GrammarEngine::SceneRootId(int buildingId) const {
+    for (const auto& root : roots) {
+        if (root.buildingId == buildingId) return buildingId;
+        if (root.symbol == Symbol::JoinedUnit)
+            for (const auto& member : root.children)
+                if (member.buildingId == buildingId) return root.buildingId;
+    }
+    return -1;
+}
+
+bool GrammarEngine::DetachBuilding(int buildingId) {
+    for (auto& unit : roots) {
+        if (unit.symbol != Symbol::JoinedUnit) continue;
+        for (auto it=unit.children.begin(); it!=unit.children.end(); ++it) {
+            if (it->buildingId != buildingId) continue;
+            ShapeNode detached=std::move(*it);
+            detached.position=unit.position + unit.rotation*detached.position;
+            detached.rotation=unit.rotation*detached.rotation;
+            detached.detachedFromUnit=true;
+            unit.children.erase(it);
+            roots.push_back(std::move(detached));
+            RebuildTerminals();
+            return true;
+        }
+    }
+    return false;
 }
 
 void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
     for (ShapeNode& current : roots) {
         if (current.buildingId != buildingId) continue;
-        AssignBuildingId(root, buildingId);
+        root.detachedFromUnit=current.detachedFromUnit;
+        if (root.symbol == Symbol::JoinedUnit) {
+            root.buildingId=buildingId;
+            for(auto& member:root.children) AssignBuildingId(member,member.buildingId);
+        }
+        else AssignBuildingId(root, buildingId);
         root.rootJoin.reset();
         current = std::move(root);
         RebuildTerminals();
         return;
+    }
+    for(auto& unit:roots) if(unit.symbol==Symbol::JoinedUnit) {
+        for(auto& member:unit.children) if(member.buildingId==buildingId) {
+            AssignBuildingId(root,buildingId);
+            root.detachedFromUnit=member.detachedFromUnit;
+            root.position=root.position-unit.position;
+            member=std::move(root);
+            RebuildTerminals();
+            return;
+        }
     }
     throw std::invalid_argument("Building no longer exists.");
 }
@@ -160,7 +207,17 @@ void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
 bool GrammarEngine::RemoveRoot(int buildingId) {
     const auto root = std::find_if(roots.begin(), roots.end(),
         [buildingId](const ShapeNode& node) { return node.buildingId == buildingId; });
-    if (root == roots.end()) return false;
+    if (root == roots.end()) {
+        for (auto& unit : roots) if (unit.symbol == Symbol::JoinedUnit) {
+            auto member=std::find_if(unit.children.begin(),unit.children.end(),
+                [buildingId](const ShapeNode& node){return node.buildingId==buildingId;});
+            if (member==unit.children.end()) continue;
+            unit.children.erase(member);
+            RebuildTerminals();
+            return true;
+        }
+        return false;
+    }
     roots.erase(root);
     RebuildTerminals();
     return true;
@@ -177,22 +234,115 @@ void GrammarEngine::MoveRoot(int buildingId, V3 position) {
         RebuildTerminals();
         return;
     }
+    for (auto& unit : roots) if (unit.symbol == Symbol::JoinedUnit) {
+        for (auto& member : unit.children) if (member.buildingId==buildingId) {
+            // Unit orientation is identity; members retain their own rotations.
+            member.position=position-unit.position;
+            RebuildTerminals();
+            return;
+        }
+    }
     throw std::invalid_argument("Building no longer exists.");
 }
 
 std::vector<ShapeNode> GrammarEngine::TerminalsForRoot(const ShapeNode& root) const {
     std::vector<ShapeNode> result;
+    for(const auto& unit:roots) if(unit.symbol==Symbol::JoinedUnit) {
+        for(const auto& member:unit.children) if(&member==&root) {
+            CollectInto(&root,unit.position,unit.rotation,root.buildingId,result,true);
+            return result;
+        }
+    }
     CollectInto(&root, V3(0, 0, 0), M33(1.0f), root.buildingId, result, true);
     return result;
 }
 
 // remove shared wall and re-collect terminals for all buildings
 void GrammarEngine::RebuildTerminals() {
+    std::vector<std::pair<int,std::vector<int>>> previousUnits;
+    std::vector<ShapeNode> buildings;
+    for (auto& root : roots) {
+        if (root.symbol != Symbol::JoinedUnit) { buildings.push_back(std::move(root)); continue; }
+        std::vector<int> ids;
+        for (auto& member : root.children) {
+            ids.push_back(member.buildingId);
+            member.position=root.position+root.rotation*member.position;
+            member.rotation=root.rotation*member.rotation;
+            buildings.push_back(std::move(member));
+        }
+        previousUnits.push_back({root.buildingId,std::move(ids)});
+    }
+    roots=std::move(buildings);
     UpdateJoins();
+    GroupJoinedRoots(previousUnits);
     std::vector<ShapeNode> result;
     for (const ShapeNode& root : roots)
         CollectInto(&root, V3(0, 0, 0), M33(1.0f), root.buildingId, result);
     terminals.swap(result);
+}
+
+void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector<int>>>& previousUnits) {
+    const size_t count=roots.size();
+    std::vector<std::vector<size_t>> neighbours(count);
+    std::vector<bool> widthLock(count,false),depthLock(count,false),touching(count,false);
+    for(size_t i=0;i<count;++i) for(size_t j=i+1;j<count;++j) {
+        const bool buildingI=roots[i].symbol==Symbol::Office || roots[i].symbol==Symbol::Apartment;
+        const bool buildingJ=roots[j].symbol==Symbol::Office || roots[j].symbol==Symbol::Apartment;
+        if(!buildingI || !buildingJ) continue;
+        AABB a=roots[i].rootJoin->bounds,b=roots[j].rootJoin->bounds;
+        unsigned ab=coveredFaces(a,b)&51u,ba=coveredFaces(b,a)&51u;
+        if(!ab || !ba) continue;
+        touching[i]=touching[j]=true;
+        if(roots[i].detachedFromUnit || roots[j].detachedFromUnit) continue;
+        neighbours[i].push_back(j); neighbours[j].push_back(i);
+        for(auto index : {i,j}) {
+            const unsigned mask=index==i?ab:ba;
+            const unsigned sides=worldFace(BuildingFace::Left,roots[index].rotation)|worldFace(BuildingFace::Right,roots[index].rotation);
+            const unsigned fronts=worldFace(BuildingFace::Front,roots[index].rotation)|worldFace(BuildingFace::Back,roots[index].rotation);
+            widthLock[index]=widthLock[index] || (mask&sides)!=0;
+            depthLock[index]=depthLock[index] || (mask&fronts)!=0;
+        }
+    }
+    for(size_t i=0;i<count;++i) if(!touching[i]) roots[i].detachedFromUnit=false;
+    std::vector<bool> visited(count,false);
+    std::vector<int> usedUnitIds;
+    std::vector<ShapeNode> grouped;
+    for(size_t start=0;start<count;++start) {
+        if(visited[start]) continue;
+        std::vector<size_t> component{start}; visited[start]=true;
+        for(size_t k=0;k<component.size();++k) for(auto neighbour:neighbours[component[k]])
+            if(!visited[neighbour]) {visited[neighbour]=true;component.push_back(neighbour);}
+        if(component.size()==1) {grouped.push_back(std::move(roots[start]));continue;}
+        ShapeNode unit; unit.symbol=Symbol::JoinedUnit;
+        // Reuse a surviving unit ID when a third building joins or a member leaves.
+        int id=-1;
+        for(const auto& previous:previousUnits) {
+            if(std::find(usedUnitIds.begin(),usedUnitIds.end(),previous.first)!=usedUnitIds.end()) continue;
+            for(auto index:component)
+                if(std::find(previous.second.begin(),previous.second.end(),roots[index].buildingId)!=previous.second.end()) {
+                    id=previous.first;break;
+                }
+            if(id>=0) break;
+        }
+        unit.buildingId=id>=0?id:nextBuildingId++;
+        usedUnitIds.push_back(unit.buildingId);
+        AABB bounds;
+        for(auto index:component) {
+            AABB b=roots[index].rootJoin->bounds;
+            bounds.AddPoint(b.minC);bounds.AddPoint(b.maxC);
+            unit.lockWidth=unit.lockWidth || widthLock[index];
+            unit.lockDepth=unit.lockDepth || depthLock[index];
+        }
+        unit.position=(bounds.minC+bounds.maxC)*.5f;
+        unit.size=bounds.maxC-bounds.minC;
+        unit.rootJoin.emplace();unit.rootJoin->bounds=bounds;
+        for(auto index:component) {
+            roots[index].position=roots[index].position-unit.position;
+            unit.children.push_back(std::move(roots[index]));
+        }
+        grouped.push_back(std::move(unit));
+    }
+    roots=std::move(grouped);
 }
 
 // assess joins between any pair of building roots using AABBs
@@ -391,7 +541,7 @@ void GrammarEngine::CollectInto(const ShapeNode* node, V3 parentPose, M33 parent
         terminal.position = newParentPose;
         terminal.rotation = worldRotation;
         terminal.buildingId = buildingId;
-        terminal.rootJoin.reset(); // Spatial state belongs only to scene roots.
+        terminal.rootJoin.reset(); // Spatial state belongs to building/unit roots.
         output.push_back(std::move(terminal));
         return;
     }

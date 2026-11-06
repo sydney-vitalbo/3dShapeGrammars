@@ -1,15 +1,43 @@
 # Automatic building joining
 
-Each scene root owns an optional `rootJoin` record with its structural world
-AABB and `overlapMask`. Descendants have no populated spatial record. Bounds
-come from the root's dimensions and pose, excluding projecting decorations, and
-stay stable when components are disabled.
+Each individual building root owns a `rootJoin` record with its structural
+world AABB and `overlapMask`, including when it is a child of a joined unit.
+Grammar descendants have no populated spatial record. Bounds exclude projecting
+decorations and stay stable when components are disabled. A JoinedUnit root
+also caches the union of its members' structural AABBs for the selection outline.
 
 `AddRoot`, `ReplaceRoot`, and snapped `MoveRoot` calls rebuild the render cache.
 `RebuildTerminals()` first checks all root pairs. Faces with positive-area
 contact or intersection contribute to both roots' masks. Edge/corner-only
 contact does not join. A completely contained root is disabled; coincident roots
 keep the older root visible.
+
+Buildings connected by vertical shared faces become a single `JoinedUnit` in
+`engine.roots`. Its children are the original building roots, with their original
+IDs, absolute sizes, and positions relative to the unit. The unit gets its own
+unique ID; third and later members become additional direct children. Unit IDs
+survive movement, parameter edits, and membership changes while at least two
+members remain connected. Disconnected components become separate scene roots.
+The engine temporarily flattens member poses to world space for the existing
+join calculations, then groups the connected components without regenerating
+the grammar. Render/picking copies use the unit ID, so selecting or dragging
+any visible member selects or moves the entire unit.
+
+Shared settings are per member: Apply regenerates each member with common
+floors, upper bays, floor height, and any unlocked dimensions, preserving office
+versus apartment type, rotation, horizontal placement, and base elevation.
+Side-to-side joins lock each member's width; front-to-back joins lock depth.
+Units containing both join directions lock both dimensions. Locked dimensions
+retain each member's existing value, even when members have different sizes.
+Total member height is `floors * floorHeight + roofHeight`.
+
+To detach a member, select that building or a descendant in the derivation tree
+and click **Detach member**. `DetachBuilding(buildingId)` searches the unit's
+children by original ID and moves the building back into `roots` at the same
+world pose. Regrouping is suppressed for that detached member until it moves
+clear of its neighbours, allowing it to be dragged away without immediately
+rejoining. A later contact can join it again. Deleting a selected unit deletes
+all its members; `RemoveRoot(memberId)` can also delete an individual member.
 
 Mask bits represent world directions: Right +X, Left -X, Top +Y, Bottom -Y,
 Front +Z, Back -Z. Rules tag exterior components with building-local

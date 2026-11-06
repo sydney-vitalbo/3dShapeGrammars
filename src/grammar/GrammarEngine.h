@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <ostream>
+#include <utility>
 
 //using namespace std;
 
@@ -27,7 +28,10 @@ public:
     void MoveRoot(int buildingId, V3 position);
     // Removing a root also restores any walls exposed on its neighbours.
     bool RemoveRoot(int buildingId);
+    // Finds a scene root or member root. Member poses remain local to their unit.
     const ShapeNode* FindRoot(int buildingId) const;
+    int SceneRootId(int buildingId) const; // Resolve a member ID to its selectable unit.
+    bool DetachBuilding(int buildingId); // Pull a member into roots, preserving its ID/pose.
     // Refresh root bounds/contact masks, propagate visibility, then collect.
     void RebuildTerminals();
     // Preview full geometry, including disabled nodes, for stable grid bounds.
@@ -46,6 +50,7 @@ private:
                             int buildingId, std::vector<ShapeNode>& output,
                             bool includeDisabled = false);
     void UpdateJoins();
+    void GroupJoinedRoots(const std::vector<std::pair<int,std::vector<int>>>& previousUnits);
     static void ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
                               const std::vector<SharedWallSpan>& spans,
                               V3 parentPose, M33 parentRotation, bool parentDisabled = false,
