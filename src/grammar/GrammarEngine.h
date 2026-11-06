@@ -47,5 +47,6 @@ private:
                             bool includeDisabled = false);
     void UpdateJoins();
     static void ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
-                              bool parentDisabled = false);
+                              const std::vector<SharedWallSpan>& spans,
+                              V3 parentPose, M33 parentRotation, bool parentDisabled = false);
 };

@@ -19,9 +19,16 @@ enum class BuildingFace : unsigned {
 };
 constexpr unsigned allBuildingFaces = 63;
 
+struct SharedWallSpan {
+    unsigned face; // World face bit; interval runs along X for front/back, Z for sides.
+    float min, max;
+    float minY, maxY; // World-space vertical extent of the covered rectangle.
+};
+
 struct RootJoinState {
     AABB bounds; // Structural root box in world space, excluding decorations.
     unsigned overlapMask = 0;
+    std::vector<SharedWallSpan> wallSpans; // Neighbours' covered wall rectangles.
     M33 lastRotation = M33(1.0f);
     bool visibilityDirty = true;
 };
@@ -52,6 +59,7 @@ struct ShapeNode {
     std::optional<RootJoinState> rootJoin;
     BuildingFace exteriorFace = BuildingFace::None;
     bool disabled = false; // Derived from root joining; reset on separation.
+    bool joinSplit = false; // Temporary shared/exposed slab split; restored on separation.
 
     bool isTerminal = false;
     std::vector<ShapeNode> children;

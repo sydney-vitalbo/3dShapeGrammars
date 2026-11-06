@@ -25,7 +25,28 @@ disabled nodes, so rendering and picking both use the updated geometry.
 `TerminalsForRoot()` includes disabled geometry for consistent grid limits,
 automatic placement, and selection outlines.
 
-This is deliberately coarse whole-face joining. Partial contact, including a
-short building touching a taller one, suppresses the corresponding entire side.
-Rotated-root AABBs are conservative. Faces are not clipped to overlap patches,
-and intersecting solids are not converted into a Boolean mesh union.
+Front/back slabs are an exception: while their face is shared, the engine
+temporarily splits each slab vertically into a left beam, center wall, and
+right beam. Only the center is disabled. Both full-height beams have a
+0.1-by-0.1 cross-section and retain the slab's material and outside plane.
+This applies to body walls, floor bands, and front/back roof parapets.
+Separation restores the original single slab. Containment or a disabled parent
+still hides the entire component, including its beams. Width and depth continue
+to describe the original outside footprint.
+
+Root records also store covered horizontal and vertical intervals for each
+vertical face, including neighbours of unequal height. Axis-aligned walls
+(including quarter-turn rotations) are split vertically and horizontally at those boundaries:
+covered terminals are disabled and exposed terminals remain visible. Front/back
+edge beams remain visible as described above. The same logic applies to side
+walls, floor bands, and parapets. Sliding recomputes these pieces even when the
+face mask stays unchanged; separation restores the original slab. Multiple
+overlap rectangles may produce additional pieces. A single overlap crossing
+one width boundary and one height boundary produces four wall terminals
+(plus the two retained beams on front/back slabs). Slabs wholly above or below
+the neighbour remain intact.
+
+Facade and bay subtrees still use whole-face disabling. Oblique rotations
+retain the previous whole-face behaviour. Rotated-root
+AABBs are conservative; intersecting solids are not converted into a Boolean
+mesh union.

@@ -134,6 +134,7 @@ void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
     throw std::invalid_argument("Building no longer exists.");
 }
 
+// used by remove root UI button
 bool GrammarEngine::RemoveRoot(int buildingId) {
     const auto root = std::find_if(roots.begin(), roots.end(),
         [buildingId](const ShapeNode& node) { return node.buildingId == buildingId; });
@@ -143,12 +144,14 @@ bool GrammarEngine::RemoveRoot(int buildingId) {
     return true;
 }
 
+// regenerate root after snapping to new position, used by SceneController::setBuilding()/snapToGrid()
 void GrammarEngine::MoveRoot(int buildingId, V3 position) {
     for (ShapeNode& root : roots) {
         if (root.buildingId != buildingId) continue;
         V3 previous = root.position;
         if (previous[0] == position[0] && previous[1] == position[1] && previous[2] == position[2]) return;
         root.position = position;
+        // rebuild terminals with potential shared wall removal
         RebuildTerminals();
         return;
     }
@@ -161,6 +164,7 @@ std::vector<ShapeNode> GrammarEngine::TerminalsForRoot(const ShapeNode& root) co
     return result;
 }
 
+// remove shared wall and re-collect terminals for all buildings
 void GrammarEngine::RebuildTerminals() {
     UpdateJoins();
     std::vector<ShapeNode> result;
@@ -169,12 +173,14 @@ void GrammarEngine::RebuildTerminals() {
     terminals.swap(result);
 }
 
+// assess joins between any pair of building roots using AABBs
 void GrammarEngine::UpdateJoins() {
     std::vector<unsigned> masks(roots.size(), 0);
     for (ShapeNode& root : roots) {
         if (!root.rootJoin) root.rootJoin.emplace();
         root.rootJoin->bounds = rootBounds(root);
     }
+    std::vector<std::vector<SharedWallSpan>> spans(roots.size());
     for (size_t i = 0; i < roots.size(); ++i) {
         for (size_t j = i+1; j < roots.size(); ++j) {
             AABB a = roots[i].rootJoin->bounds, b = roots[j].rootJoin->bounds;
@@ -182,31 +188,125 @@ void GrammarEngine::UpdateJoins() {
             // boxes keep the older root visible instead of hiding both copies.
             if (contains(a,b)) { masks[j] |= allBuildingFaces; continue; }
             if (contains(b,a)) { masks[i] |= allBuildingFaces; continue; }
-            masks[i] |= coveredFaces(a,b);
-            masks[j] |= coveredFaces(b,a);
+            const unsigned ab = coveredFaces(a,b), ba = coveredFaces(b,a);
+            masks[i] |= ab;
+            masks[j] |= ba;
+            {
+                for (unsigned face : {1u,2u,16u,32u}) {
+                    const int tangent = face <= 2 ? 2 : 0;
+                    const float lo = std::max(a.minC[tangent], b.minC[tangent]);
+                    const float hi = std::min(a.maxC[tangent], b.maxC[tangent]);
+                    if (ab & face) spans[i].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1])});
+                    if (ba & face) spans[j].push_back({face,lo,hi,std::max(a.minC[1],b.minC[1]),std::min(a.maxC[1],b.maxC[1])});
+                }
+            }
         }
     }
     for (size_t i = 0; i < roots.size(); ++i) {
         RootJoinState& state = *roots[i].rootJoin;
-        bool orientationChanged = false;
-        for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c)
-            if (state.lastRotation[r][c] != roots[i].rotation[r][c]) orientationChanged = true;
-        if (state.overlapMask != masks[i] || state.visibilityDirty || orientationChanged) {
-            // Reapply from scratch so separation restores the affected tree.
-            ApplyJoinMask(roots[i], masks[i], roots[i].rotation);
-            state.lastRotation = roots[i].rotation;
-            state.visibilityDirty = false;
-        }
+        // The covered interval can change even while the face mask stays the same.
+        state.wallSpans = std::move(spans[i]);
+        ApplyJoinMask(roots[i], masks[i], roots[i].rotation, state.wallSpans,
+                      V3(0,0,0), M33(1.0f));
+        state.lastRotation = roots[i].rotation;
+        state.visibilityDirty = false;
         state.overlapMask = masks[i];
     }
 }
 
 void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
-                                   bool parentDisabled) {
-    node.disabled = parentDisabled || worldMask == allBuildingFaces ||
-        (worldMask & worldFace(node.exteriorFace, rootRotation)) != 0;
-    for (ShapeNode& child : node.children)
-        ApplyJoinMask(child, worldMask, rootRotation, node.disabled);
+                                   const std::vector<SharedWallSpan>& spans,
+                                   V3 parentPose, M33 parentRotation, bool parentDisabled) {
+    const V3 worldPosition = parentPose + parentRotation * node.position;
+    M33 worldRotation = parentRotation * node.rotation;
+    const unsigned face = worldFace(node.exteriorFace, rootRotation);
+    const bool faceCovered = (worldMask & face) != 0;
+    // Restore the original slab first, so moves never accumulate subdivisions.
+    if (node.joinSplit) {
+        node.children.clear();
+        node.isTerminal = true;
+        node.joinSplit = false;
+    }
+    const bool frontBack = node.exteriorFace == BuildingFace::Front || node.exteriorFace == BuildingFace::Back;
+    const bool side = node.exteriorFace == BuildingFace::Left || node.exteriorFace == BuildingFace::Right;
+    if (!parentDisabled && worldMask != allBuildingFaces && faceCovered &&
+        (frontBack || side) && node.symbol == Symbol::Slab && node.isTerminal) {
+        const int axis = frontBack ? 0 : 2;
+        const float length = node.size[axis];
+        V3 tangent(0,0,0); tangent[axis] = 1;
+        tangent = worldRotation * tangent;
+        const int worldAxis = face <= 2 ? 2 : 0;
+        struct Rectangle { float min, max, minY, maxY; };
+        std::vector<Rectangle> covered;
+        const float height = node.size[1];
+        V3 center = worldPosition;
+        // Exact interval clipping applies to axis-aligned/quarter-turn walls.
+        V3 up = worldRotation * V3(0,1,0);
+        const bool aligned = std::fabs(std::fabs(tangent[worldAxis])-1.f) < joinEpsilon &&
+                             std::fabs(up[1]-1.f) < joinEpsilon;
+        if (aligned) {
+            for (const auto& span : spans) if (span.face == face) {
+                float lo = (span.min-center[worldAxis])/tangent[worldAxis];
+                float hi = (span.max-center[worldAxis])/tangent[worldAxis];
+                if (lo > hi) std::swap(lo,hi);
+                lo = std::max(lo,-length/2); hi = std::min(hi,length/2);
+                const float bottom = std::max(span.minY-center[1],-height/2);
+                const float top = std::min(span.maxY-center[1],height/2);
+                if (hi-lo > joinEpsilon && top-bottom > joinEpsilon)
+                    covered.push_back({lo,hi,bottom,top});
+            }
+        }
+        // Keep oblique roots' previous conservative whole-face behaviour.
+        if (!aligned) covered.push_back({-length/2,length/2,-height/2,height/2});
+        if (covered.empty()) {
+            // This slab is above/below the neighbour: retain the original box.
+            node.disabled = false;
+            return;
+        }
+        const float beam = frontBack ? 0.1f : 0.f;
+        const float lo = -length/2+beam, hi = length/2-beam;
+        std::vector<float> cuts{lo,hi}, heightCuts{-height/2,height/2};
+        for (const auto& span : covered) {
+            cuts.push_back(std::clamp(span.min,lo,hi));
+            cuts.push_back(std::clamp(span.max,lo,hi));
+            heightCuts.push_back(span.minY);
+            heightCuts.push_back(span.maxY);
+        }
+        auto sortCuts = [](std::vector<float>& values) {
+            std::sort(values.begin(),values.end());
+            values.erase(std::unique(values.begin(),values.end(),[](float a,float b){
+                return std::fabs(a-b)<joinEpsilon;
+            }),values.end());
+        };
+        sortCuts(cuts);
+        sortCuts(heightCuts);
+        // Crossing width and height cuts yields four cells for a single offset
+        // corner overlap; only cells inside a covered rectangle are hidden.
+        for (size_t y=1; y<heightCuts.size(); ++y)
+        for (size_t i=1; i<cuts.size(); ++i) {
+            const float midpoint = (cuts[i-1]+cuts[i])/2;
+            V3 size=node.size, position(0,0,0);
+            size[axis]=cuts[i]-cuts[i-1]; position[axis]=midpoint;
+            size[1]=heightCuts[y]-heightCuts[y-1];
+            position[1]=(heightCuts[y]+heightCuts[y-1])/2;
+            auto piece=grammar_ops::terminal(node,node.material,size,position);
+            for (const auto& span : covered)
+                if (midpoint >= span.min && midpoint <= span.max &&
+                    position[1] >= span.minY && position[1] <= span.maxY) piece.disabled=true;
+            node.children.push_back(std::move(piece));
+        }
+        if (frontBack) for (float sign : {-1.f,1.f}) {
+            const float z=(node.exteriorFace==BuildingFace::Front ? 1.f : -1.f)*(node.size[2]-beam)/2;
+            auto edge=grammar_ops::terminal(node,node.material,V3(beam,node.size[1],beam),
+                                           V3(sign*(length-beam)/2,0,z));
+            node.children.push_back(std::move(edge));
+        }
+        node.isTerminal=false;
+        node.joinSplit=true;
+    }
+    node.disabled = parentDisabled || worldMask == allBuildingFaces || (faceCovered && !node.joinSplit);
+    if (!node.joinSplit) for (ShapeNode& child : node.children)
+        ApplyJoinMask(child,worldMask,rootRotation,spans,worldPosition,worldRotation,node.disabled);
 }
 
 // generate grammar tree for a given preset
