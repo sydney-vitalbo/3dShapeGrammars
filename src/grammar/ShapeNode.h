@@ -61,7 +61,10 @@ struct ShapeNode {
     BuildingFace exteriorFace = BuildingFace::None;
     bool disabled = false; // Derived from root joining; reset on separation.
     bool joinSplit = false; // Temporary shared/exposed slab split; restored on separation.
-    bool detachedFromUnit = false; // Suppress regrouping until this building separates.
+    // Former unit members that this building must not immediately rejoin.
+    // Entries are removed independently as those two buildings separate, so a
+    // detached building may still join a different building right away.
+    std::vector<int> detachedFromBuildings;
     bool lockWidth = false, lockDepth = false; // JoinedUnit parameter constraints.
 
     bool isTerminal = false;

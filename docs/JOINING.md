@@ -34,9 +34,10 @@ Total member height is `floors * floorHeight + roofHeight`.
 To detach a member, select that building or a descendant in the derivation tree
 and click **Detach member**. `DetachBuilding(buildingId)` searches the unit's
 children by original ID and moves the building back into `roots` at the same
-world pose. Regrouping is suppressed for that detached member until it moves
-clear of its neighbours, allowing it to be dragged away without immediately
-rejoining. A later contact can join it again. Deleting a selected unit deletes
+world pose. Regrouping with its former unit members is suppressed until each
+pair separates, allowing it to be dragged away without immediately rejoining.
+The detached member can still join a different building immediately. A later
+contact with a former member can join it again. Deleting a selected unit deletes
 all its members; `RemoveRoot(memberId)` can also delete an individual member.
 
 Mask bits represent world directions: Right +X, Left -X, Top +Y, Bottom -Y,

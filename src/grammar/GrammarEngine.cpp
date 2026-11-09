@@ -166,7 +166,13 @@ bool GrammarEngine::DetachBuilding(int buildingId) {
             ShapeNode detached=std::move(*it);
             detached.position=unit.position + unit.rotation*detached.position;
             detached.rotation=unit.rotation*detached.rotation;
-            detached.detachedFromUnit=true;
+            for (const auto& member : unit.children) {
+                if (member.buildingId == buildingId) continue;
+                if (std::find(detached.detachedFromBuildings.begin(),
+                              detached.detachedFromBuildings.end(),
+                              member.buildingId) == detached.detachedFromBuildings.end())
+                    detached.detachedFromBuildings.push_back(member.buildingId);
+            }
             unit.children.erase(it);
             roots.push_back(std::move(detached));
             RebuildTerminals();
@@ -179,7 +185,7 @@ bool GrammarEngine::DetachBuilding(int buildingId) {
 void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
     for (ShapeNode& current : roots) {
         if (current.buildingId != buildingId) continue;
-        root.detachedFromUnit=current.detachedFromUnit;
+        root.detachedFromBuildings=current.detachedFromBuildings;
         if (root.symbol == Symbol::JoinedUnit) {
             root.buildingId=buildingId;
             for(auto& member:root.children) AssignBuildingId(member,member.buildingId);
@@ -193,7 +199,7 @@ void GrammarEngine::ReplaceRoot(int buildingId, ShapeNode root) {
     for(auto& unit:roots) if(unit.symbol==Symbol::JoinedUnit) {
         for(auto& member:unit.children) if(member.buildingId==buildingId) {
             AssignBuildingId(root,buildingId);
-            root.detachedFromUnit=member.detachedFromUnit;
+            root.detachedFromBuildings=member.detachedFromBuildings;
             root.position=root.position-unit.position;
             member=std::move(root);
             RebuildTerminals();
@@ -284,7 +290,8 @@ void GrammarEngine::RebuildTerminals() {
 void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector<int>>>& previousUnits) {
     const size_t count=roots.size();
     std::vector<std::vector<size_t>> neighbours(count);
-    std::vector<bool> widthLock(count,false),depthLock(count,false),touching(count,false);
+    std::vector<bool> widthLock(count,false),depthLock(count,false);
+    std::vector<std::vector<int>> touchingIds(count);
     for(size_t i=0;i<count;++i) for(size_t j=i+1;j<count;++j) {
         const bool buildingI=roots[i].symbol==Symbol::Office || roots[i].symbol==Symbol::Apartment;
         const bool buildingJ=roots[j].symbol==Symbol::Office || roots[j].symbol==Symbol::Apartment;
@@ -292,8 +299,15 @@ void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector
         AABB a=roots[i].rootJoin->bounds,b=roots[j].rootJoin->bounds;
         unsigned ab=coveredFaces(a,b)&51u,ba=coveredFaces(b,a)&51u;
         if(!ab || !ba) continue;
-        touching[i]=touching[j]=true;
-        if(roots[i].detachedFromUnit || roots[j].detachedFromUnit) continue;
+        touchingIds[i].push_back(roots[j].buildingId);
+        touchingIds[j].push_back(roots[i].buildingId);
+        const auto suppresses = [](const ShapeNode& root, int otherId) {
+            return std::find(root.detachedFromBuildings.begin(),
+                             root.detachedFromBuildings.end(), otherId)
+                   != root.detachedFromBuildings.end();
+        };
+        if(suppresses(roots[i],roots[j].buildingId) ||
+           suppresses(roots[j],roots[i].buildingId)) continue;
         neighbours[i].push_back(j); neighbours[j].push_back(i);
         for(auto index : {i,j}) {
             const unsigned mask=index==i?ab:ba;
@@ -303,7 +317,12 @@ void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector
             depthLock[index]=depthLock[index] || (mask&fronts)!=0;
         }
     }
-    for(size_t i=0;i<count;++i) if(!touching[i]) roots[i].detachedFromUnit=false;
+    for(size_t i=0;i<count;++i) {
+        auto& suppressed=roots[i].detachedFromBuildings;
+        suppressed.erase(std::remove_if(suppressed.begin(),suppressed.end(),[&](int id) {
+            return std::find(touchingIds[i].begin(),touchingIds[i].end(),id)==touchingIds[i].end();
+        }),suppressed.end());
+    }
     std::vector<bool> visited(count,false);
     std::vector<int> usedUnitIds;
     std::vector<ShapeNode> grouped;
