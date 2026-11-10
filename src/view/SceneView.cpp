@@ -21,42 +21,6 @@
 
 namespace sg {
 
-namespace {
-// Build the world-space axis-aligned bounding box (AABB) of one terminal.
-//
-// A terminal is an oriented box: a cube of `t.size`, rotated by `t.rotation`,
-// centered at `t.position`. Its world-space AABB is the smallest axis-aligned
-// box containing all 8 rotated corners, so we rotate each corner into world
-// space and grow an AABB over them.
-//
-// This is the loose "broad-phase" box used to cheaply reject a pick ray before
-// the exact oriented-box test. It is computed here on the fly; if picking ever
-// becomes a bottleneck, this per-terminal AABB is the natural thing to cache in
-// the engine's terminal-rebuild step (see docs: two-tier picking notes).
-AABB terminalWorldAABB(const ShapeNode& t) {
-    // V3/M33 subscript and arithmetic operators are non-const, so copy into
-    // mutable locals before indexing them (t is const here).
-    V3 center = t.position;
-    V3 size = t.size;
-    M33 rotation = t.rotation;
-    // Not const: V3::operator[] below is a non-const member in this codebase.
-    V3 half = size * 0.5f;
-
-    AABB box;
-    // The 8 corners are every combination of +/- half extent on each axis.
-    for (int sx = -1; sx <= 1; sx += 2)
-        for (int sy = -1; sy <= 1; sy += 2)
-            for (int sz = -1; sz <= 1; sz += 2) {
-                V3 localCorner(sx * half[0], sy * half[1], sz * half[2]);
-                // Rotate the corner into world orientation, then offset by the
-                // box center to get its world position.
-                V3 worldCorner = center + rotation * localCorner;
-                box.AddPoint(worldCorner);
-            }
-    return box;
-}
-} // namespace
-
 SceneView::SceneView(SceneController& controller, int x, int y, int w, int h, const char* label)
     : Fl_Gl_Window(x, y, w, h, label), //pass position/size up to the FLTK base class
       controller(controller) {
@@ -355,16 +319,15 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
     int hitBuildingId = -1;
     for (const ShapeNode& t : engine.terminals) {
-        // Two-part test:
-        // if ray misses AABB, no need to call OBB version
-        AABB aabb = terminalWorldAABB(t);
+        // Two-tier test: first test if ray hit the AABB, then OBB
+        AABB aabb = t.worldAABB;
         float tBroad;
         if (!picking::rayHitAABB(origin, dir, aabb.minC, aabb.maxC, tBroad) ||
             tBroad > bestT) {
-            continue; //also skip any terminal whose t value is later than the best so far
+            continue; //skip any terminal farther than the best one so far
         }
 
-        // Survived the AABB test: now the OBB test
+        // Survived the broad phase: now the EXACT oriented-box test.
         // picking::rayHitBox returns true + the entry distance if the ray pierces
         // this terminal's box; we keep it only if it's closer than any found before.
         float tHit;

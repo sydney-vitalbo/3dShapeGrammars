@@ -18,6 +18,16 @@ AABB rootBounds(const ShapeNode& root) {
     return bounds;
 }
 
+// AABB of a single box given its world orientation
+// The 8 corners are every +/- half-extent combination, rotated into world orientation and offset by the center
+AABB boxWorldBounds(V3 center, V3 size, M33 rotation) {
+    AABB bounds;
+    V3 half = size * 0.5f;
+    for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
+        bounds.AddPoint(center + rotation * V3(x*half[0], y*half[1], z*half[2]));
+    return bounds;
+}
+
 bool contains(AABB outer, AABB inner) {
     for (int axis = 0; axis < 3; ++axis)
         if (inner.minC[axis] < outer.minC[axis]-joinEpsilon ||
@@ -285,6 +295,24 @@ void GrammarEngine::RebuildTerminals() {
     for (const ShapeNode& root : roots)
         CollectInto(&root, V3(0, 0, 0), M33(1.0f), root.buildingId, result);
     terminals.swap(result);
+
+    // Refresh the AABB cache
+    rootBoundsCache.clear();
+    rootBoundsCache.reserve(roots.size());
+    for (const ShapeNode& root : roots) {
+        AABB bounds;
+        for (const ShapeNode& terminal : TerminalsForRoot(root)) {
+            bounds.AddPoint(terminal.worldAABB.minC);
+            bounds.AddPoint(terminal.worldAABB.maxC);
+        }
+        rootBoundsCache.push_back({root.buildingId, bounds});
+    }
+}
+
+bool GrammarEngine::RootBounds(int buildingId, AABB& outBounds) const {
+    for (const auto& entry : rootBoundsCache)
+        if (entry.first == buildingId) { outBounds = entry.second; return true; }
+    return false;
 }
 
 void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector<int>>>& previousUnits) {
@@ -561,6 +589,8 @@ void GrammarEngine::CollectInto(const ShapeNode* node, V3 parentPose, M33 parent
         terminal.rotation = worldRotation;
         terminal.buildingId = buildingId;
         terminal.rootJoin.reset(); // Spatial state belongs to building/unit roots.
+        // Cache this terminal's world-space AABB now, while we already have its final world orientation
+        terminal.worldAABB = boxWorldBounds(newParentPose, terminal.size, worldRotation);
         output.push_back(std::move(terminal));
         return;
     }

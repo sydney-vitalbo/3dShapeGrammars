@@ -37,6 +37,10 @@ public:
     // Preview full geometry, including disabled nodes, for stable grid bounds.
     std::vector<ShapeNode> TerminalsForRoot(const ShapeNode& root) const;
 
+    // Cached AABB
+    // Returns false if the id has no cached bounds (nothing built yet, or an id that is not a scene root)
+    bool RootBounds(int buildingId, AABB& outBounds) const;
+
     void GenerateTest();
     void GenerateTree(ShapeNode* node);
     void PrintTree(const ShapeNode* node, int depth = 0);
@@ -45,6 +49,12 @@ public:
 
 private:
     int nextBuildingId = 0;
+
+    // Per-root full-geometry world bounds, rebuilt alongside `terminals` in
+    // RebuildTerminals(). Keyed by selectable root/unit id. A plain vector of
+    // pairs (not a map) because the scene holds only a handful of roots, so a
+    // linear lookup in RootBounds() is cheaper than hashing.
+    std::vector<std::pair<int, AABB>> rootBoundsCache;
     static void AssignBuildingId(ShapeNode& node, int buildingId);
     static void CollectInto(const ShapeNode* node, V3 parentPose, M33 parentRotation,
                             int buildingId, std::vector<ShapeNode>& output,

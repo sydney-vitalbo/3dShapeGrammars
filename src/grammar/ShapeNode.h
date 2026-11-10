@@ -69,4 +69,9 @@ struct ShapeNode {
 
     bool isTerminal = false;
     std::vector<ShapeNode> children;
+
+    // Cached AABB- the engine fills this in once per terminal rebuild so dont have to recompute on every click/drag
+    // **only meaningful for terminals since already in world space coordinates!
+    // (left at the default (empty) box on grammar-tree nodes, which are expressed in parent-relative coordinates)
+    AABB worldAABB;
 };

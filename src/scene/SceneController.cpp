@@ -18,11 +18,12 @@ AABB terminalBounds(const std::vector<ShapeNode>& terminals, int buildingId = -1
     AABB bounds;
     for (const ShapeNode& terminal : terminals) {
         if (buildingId >= 0 && terminal.buildingId != buildingId) continue;
-        V3 center = terminal.position, half = terminal.size;
-        half = half * 0.5f;
-        M33 rotation = terminal.rotation;
-        for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
-            bounds.AddPoint(center + rotation * V3(x*half[0], y*half[1], z*half[2]));
+        // Terminals produced by the engine carry a precomputed world-space AABB
+        // (GrammarEngine::CollectInto fills it in). Union those cached corners
+        // instead of re-rotating the box's 8 corners here.
+        AABB box = terminal.worldAABB;
+        bounds.AddPoint(box.minC);
+        bounds.AddPoint(box.maxC);
     }
     return bounds;
 }
@@ -299,7 +300,9 @@ bool SceneController::selectedBuildingBounds(AABB& outBounds) const {
         return true;
     }
     // Full geometry keeps the selected outline stable even when a join hides
-    // a whole side (or another building completely contains this root).
+    // a whole side (or another building completely contains this root)
+    if (engine.RootBounds(selectedRootId, outBounds)) return true;
+    // Fallback (cache miss, e.g. right after a structural change): measure now.
     outBounds = terminalBounds(engine.TerminalsForRoot(*root));
     return true;
 }
