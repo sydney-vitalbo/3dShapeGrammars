@@ -37,6 +37,16 @@ bool rayHitBox(const V3& origin, const V3& dir,
                float& outT);
 
 /**
+ * Ray vs. axis-aligned bounding box (AABB), using the slab method just like above!
+ 
+ * this is the cheap, rotation-free version of rayHitBox
+ * CALL THIS FIRST (before rayHitBox/OBB, because it's cheaper...if this says no, then no need to call OBB version)
+ */
+bool rayHitAABB(const V3& origin, const V3& dir,
+                const V3& minC, const V3& maxC,
+                float& outT);
+
+/**
  * Ray vs. the flat ground plane (y = 0).
  *
  * params: origin,dir  the ray

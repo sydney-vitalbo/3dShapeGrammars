@@ -12,6 +12,41 @@
 namespace sg {
 namespace picking {
 
+// Cheap ray vs. axis-aligned box, via the "slab method"
+// Used as a test reject before the oriented-box test (rayHitBox)
+bool rayHitAABB(const V3& origin, const V3& dir,
+                const V3& minC, const V3& maxC,
+                float& outT) {
+    // V3's subscript operator is non-const, so copy into mutable locals.
+    V3 o = origin, d = dir;
+    V3 lo = minC, hi = maxC;
+
+    // Same idea as rayHitBox, but the box is already in world axes: start with
+    // "the whole ray" and shrink the valid [tMin, tMax] window one axis at a time.
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
+    for (int i = 0; i < 3; ++i) { // i = 0,1,2 -> X, Y, Z axis
+        const float oi = o[i], di = d[i];
+        if (std::abs(di) < 1e-8f) {
+            // Ray runs parallel to this pair of walls: it can only be inside if
+            // it already STARTS between them.
+            if (oi < lo[i] || oi > hi[i]) return false; // started outside -> miss
+        } else {
+            // Distances at which the ray crosses this axis's two walls.
+            float t1 = (lo[i] - oi) / di;
+            float t2 = (hi[i] - oi) / di;
+            if (t1 > t2) std::swap(t1, t2); // t1 = near wall, t2 = far wall
+            tMin = std::max(tMin, t1); // latest entry so far
+            tMax = std::min(tMax, t2); // earliest exit so far
+            if (tMin > tMax) return false; // slabs don't overlap -> miss
+        }
+    }
+    // Survived all three axes: the ray enters the box at distance tMin
+    // (tMin is 0 when the ray's origin is already inside the box).
+    outT = tMin;
+    return true;
+}
+
 //Determine if the ray hits this box, via the "slab method"
 // Returns true on a hit and writes the entry distance to outT (used to pick the closest terminal)
 bool rayHitBox(const V3& origin, const V3& dir,
