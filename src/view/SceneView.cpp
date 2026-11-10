@@ -313,28 +313,52 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
     V3 origin, dir;
     buildSelectionRay(mouseX, mouseY, origin, dir);
 
-    // Walk every terminal and remember the nearest one the ray enters
-    // NOTE: supports boxes currently- cylinders fall back to their bounding box, which is fine for whole-building selection?
+    // Find the nearest building the ray enters, using a 3-level test to maximize the work skipped:
+    //
+    //   1. Per-BUILDING: test the ray against each building's cached AABB first
+    //   2. Per-TERMINAL: for a building we did not skip, test each
+    //      terminal's cached AABB
+    //   3. Per-TERMINAL exact phase: only on survivors... the OBB test
+    //
+    // Both AABBs are precomputed once per terminal rebuild (GrammarEngine), so
+    // picking rotates no corners here. Selection resolves to the whole building.
+    // NOTE: boxes only for now; cylinders fall back to their bounding box, which
+    // is fine for whole-building selection???
     const GrammarEngine& engine = controller.engineRef();
     float bestT = std::numeric_limits<float>::max(); // best (smallest) distance so far
     int hitBuildingId = -1;
-    for (const ShapeNode& t : engine.terminals) {
-        // Two-tier test: first test if ray hit the AABB, then OBB
-        AABB aabb = t.worldAABB;
-        float tBroad;
-        if (!picking::rayHitAABB(origin, dir, aabb.minC, aabb.maxC, tBroad) ||
-            tBroad > bestT) {
-            continue; //skip any terminal farther than the best one so far
-        }
 
-        // Survived the broad phase: now the EXACT oriented-box test.
-        // picking::rayHitBox returns true + the entry distance if the ray pierces
-        // this terminal's box; we keep it only if it's closer than any found before.
-        float tHit;
-        if (picking::rayHitBox(origin, dir, t.position, t.size, t.rotation, tHit) &&
-            tHit < bestT) {
-            bestT = tHit;
-            hitBuildingId = t.buildingId;
+    for (const auto& entry : engine.RootBoundsList()) {
+        const int rootId = entry.first;
+        AABB rootBox = entry.second;
+
+        // Level 1: skip the whole building unless the ray enters its box AND
+        // that entry could still be closer than the best hit found so far
+        float tRoot;
+        if (!picking::rayHitAABB(origin, dir, rootBox.minC, rootBox.maxC, tRoot))
+            continue;
+        // The entry distance to the (looser) root box is a lower bound on any
+        // hit inside it; if even that is farther than bestT, this building loses.
+        if (tRoot > bestT) continue;
+
+        // Levels 2 + 3: descend into just this building's terminals.
+        for (const ShapeNode& t : engine.terminals) {
+            if (t.buildingId != rootId) continue; // terminal belongs to another building
+
+            AABB aabb = t.worldAABB;
+            float tBroad;
+            if (!picking::rayHitAABB(origin, dir, aabb.minC, aabb.maxC, tBroad) ||
+                tBroad > bestT) {
+                continue; // cheap per-terminal reject
+            }
+
+            // Exact oriented-box test; keep only if it's the closest hit so far.
+            float tHit;
+            if (picking::rayHitBox(origin, dir, t.position, t.size, t.rotation, tHit) &&
+                tHit < bestT) {
+                bestT = tHit;
+                hitBuildingId = rootId;
+            }
         }
     }
 

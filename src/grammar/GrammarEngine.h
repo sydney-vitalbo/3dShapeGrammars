@@ -41,6 +41,9 @@ public:
     // Returns false if the id has no cached bounds (nothing built yet, or an id that is not a scene root)
     bool RootBounds(int buildingId, AABB& outBounds) const;
 
+    // Read-only view of the per-root bounds cache
+    const std::vector<std::pair<int, AABB>>& RootBoundsList() const { return rootBoundsCache; }
+
     void GenerateTest();
     void GenerateTree(ShapeNode* node);
     void PrintTree(const ShapeNode* node, int depth = 0);
