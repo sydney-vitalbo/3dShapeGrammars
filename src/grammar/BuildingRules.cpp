@@ -100,10 +100,11 @@ void expandFloor(ShapeNode* node) {
     if (!rear.building.streetFacing)
         transform(rear, V3(0, 0, 0), M33(V3(0, 1, 0), 180.0f));
 
-    auto children = shell(*node, wall, Material::Stone, node->building.groundFloor);
+    const Material wallMaterial = node->building.apartment ? Material::Stone : Material::WhiteMarble;
+    auto children = shell(*node, wall, wallMaterial, node->building.groundFloor);
     children.push_back(std::move(front));
     children.push_back(std::move(rear));
-    auto band = shell(*node, regions[1], node->building.apartment ? Material::Stone : Material::Wood);
+    auto band = shell(*node, regions[1], node->building.apartment ? Material::RedMarble : Material::Stone);
     for (ShapeNode& piece : band) children.push_back(std::move(piece));
     node->children = std::move(children);
 }
@@ -171,7 +172,7 @@ void expandEntrance(ShapeNode* node) {
         childOf(*node, Symbol::Window,
             V3(0.88f * node->size[0], 0.91f * node->size[1], 0.08f),
             V3(0, -0.045f * node->size[1], 0.04f)),
-        terminal(*node, node->building.apartment ? Material::Stone : Material::Wood,
+        terminal(*node, Material::RedMarble,
             V3(1.12f * node->size[0], 0.07f, canopyDepth),
             V3(0, 0.45f * node->size[1], canopyDepth / 2))
     };
@@ -181,7 +182,7 @@ void expandEntrance(ShapeNode* node) {
 // The panes fill separate openings; no solid backing box or glass under the
 // mullion. Frame pieces meet at edges instead of sharing visible face areas.
 void expandWindow(ShapeNode* node) {
-    const Material frame = node->building.apartment ? Material::Stone : Material::Wood;
+    const Material frame = node->building.apartment ? Material::WhiteMarble : Material::Stone;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
     const float side = 0.06f * w, trim = 0.065f * h;
     const float openingHeight = h - 2 * trim, mullion = 0.035f * w;
@@ -222,7 +223,7 @@ void expandBalcony(ShapeNode* node) {
 void expandRoof(ShapeNode* node) {
     constexpr float thickness = 0.10f;
     const float w = node->size[0], h = node->size[1], d = node->size[2];
-    const Material edge = node->building.apartment ? Material::Wood : Material::Stone;
+    const Material edge = node->building.apartment ? Material::RedMarble : Material::Stone;
     // The deck fills the footprint and parapets sit on it. Removing an internal
     // parapet during joining therefore leaves a continuous roof surface.
     const float deckHeight = 0.25f*h, parapetHeight = h-deckHeight;

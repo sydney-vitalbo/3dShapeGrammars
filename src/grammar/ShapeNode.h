@@ -10,7 +10,7 @@ enum class Symbol {
 };
 
 enum class Material {
-    None, Wood, Glass, Stone,
+    None, Wood, Glass, Stone, WhiteMarble, RedMarble,
 };
 
 // Root masks use world AABB directions. Component tags use building-local axes.

@@ -137,6 +137,8 @@ void SceneView::drawGrammarScene() {
         float r = 0.8f, g = 0.8f, b = 0.8f;
         switch (t.material) {
             case Material::Stone: r = 0.75f; g = 0.79f; b = 0.82f; break; // light gray stone
+            case Material::WhiteMarble: r = 0.92f; g = 0.90f; b = 0.85f; break;
+            case Material::RedMarble: r = 0.56f; g = 0.25f; b = 0.22f; break;
             case Material::Glass: r = 0.20f; g = 0.56f; b = 0.68f; break; // blue-teal glass
             case Material::Wood:  r = 0.18f; g = 0.25f; b = 0.30f; break; // dark trim
             case Material::None:  r = 0.19f; g = 0.22f; b = 0.24f; break; // roof deck
@@ -154,8 +156,8 @@ void SceneView::drawGrammarScene() {
                                     b = std::min(1.0f, b*0.6f+0.10f); glColor3f(r,g,b); }
             else                  { glColor3f(1.0f, 1.0f, 1.0f); }
 
-            //bind the texture + set up automatic texture coordinates for this piece
-            textures.bind(t.material, tSize);
+            // Mesh::draw supplies face-specific coordinates scaled to this piece.
+            textures.bind(t.material);
         } else {
             //Untextured: keep the existing flat-color look, brightened when selected.
             if (buildingSelected) {
@@ -186,7 +188,7 @@ void SceneView::drawGrammarScene() {
         };
         glMultMatrixf(rotation);
         glScalef(tSize[0], tSize[1], tSize[2]);                 //box dimensions
-        boxMesh.draw(); // all current terminals are box shapes
+        boxMesh.draw(tSize[0], tSize[1], tSize[2]); // all current terminals are box shapes
         glPopMatrix();
 
         //turn texturing back off so the next piece (or the grid/highlight) isn't accidentally textured

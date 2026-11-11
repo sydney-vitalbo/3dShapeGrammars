@@ -3,15 +3,14 @@
 // Pulled out of SceneView so the view's draw loop doesn't carry OpenGL texture
 // setup. A TextureSet:
 //   - loads one PNG per building Material into a GL texture (once), and
-//   - binds the right texture for a terminal and sets up automatic texture-
-//     coordinate generation, then unbinds it again.
-// The building Materials come from grammar/ShapeNode.h (None/Wood/Glass/Stone).
+//   - binds the right texture for a terminal, then unbinds it again.
+// Mesh supplies face-specific texture coordinates.
+// The building Materials come from grammar/ShapeNode.h.
 
 #ifndef VIEW_TEXTURESET_H
 #define VIEW_TEXTURESET_H
 
 #include "grammar/ShapeNode.h" // Material
-#include "scene/V3.h"          // V3 (terminal size, for tiling)
 
 class Fl_RGB_Image; // FLTK decoded image (Fl_PNG_Image derives from it)
 
@@ -43,12 +42,11 @@ public:
     bool has(Material material) const;
 
     /**
-     * Bind `material`'s texture and switch on automatic texture-coordinate
-     * generation, scaled by the terminal's `size` so the texture tiles about
-     * once per world unit (consistent scale across big walls and tiny trim).
+     * Bind `material`'s texture. Mesh::draw supplies coordinates scaled by the
+     * terminal dimensions so the texture tiles about once per world unit.
      * Precondition: has(material) is true.
      */
-    void bind(Material material, const V3& size) const;
+    void bind(Material material) const;
 
     /**
      * Undo bind(): turn texgen + 2D texturing back off so later draws (the grid,
@@ -73,8 +71,8 @@ private:
     void uploadTexture(Material material, Fl_RGB_Image& img);
 
     // One GL texture id per Material (enum values index this array:
-    // None=0, Wood=1, Glass=2, Stone=3). 0 means "no texture" -> flat color.
-    unsigned int textures[4] = {0, 0, 0, 0};
+    // through RedMarble). 0 means "no texture" -> flat color.
+    unsigned int textures[static_cast<int>(Material::RedMarble) + 1] = {};
 };
 
 } // namespace sg

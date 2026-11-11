@@ -39,7 +39,8 @@ void TextureSet::loadTexture(Material material, const char* relativePath) {
         leaf,                  // cwd = src/  (running src/main.exe from src/)
         "../" + fromRoot,      // cwd one level below repo root
         "../../" + fromRoot,   // cwd = build/<preset>/bin
-        "../../../" + fromRoot // cwd = build/<preset>/bin/<config>
+        "../../../" + fromRoot, // cwd = build/<preset>/bin
+        "../../../../" + fromRoot // cwd = build/<preset>/bin/<config>
     };
 
     for (const std::string& full : candidates) {
@@ -97,6 +98,8 @@ void TextureSet::loadAll() {
     loadTexture(Material::Stone, "src/textures/Stone.png");
     loadTexture(Material::Glass, "src/textures/Glass.png");
     loadTexture(Material::Wood,  "src/textures/Wood.png");
+    loadTexture(Material::WhiteMarble, "src/textures/WhiteMarble.png");
+    loadTexture(Material::RedMarble, "src/textures/RedMarble.png");
     // Material::None (roof deck) stays untextured -> flat color.
 }
 
@@ -104,22 +107,13 @@ bool TextureSet::has(Material material) const {
     return textures[static_cast<int>(material)] != 0;
 }
 
-void TextureSet::bind(Material material, const V3& size) const {
+void TextureSet::bind(Material material) const {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[static_cast<int>(material)]);
 
-    //s follows object X, t follows object Y. Folding the terminal's size
-    //into the planes makes the texture tile ~once per world unit, so the
-    //scale looks consistent across big walls and tiny trim pieces
-    V3 s = size; // V3's subscript operator is non-const, so copy to index
-    const GLfloat sPlane[4] = {s[0], 0.0f, 0.0f, 0.0f};
-    const GLfloat tPlane[4] = {0.0f, s[1], 0.0f, 0.0f};
-    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-    glTexGenfv(GL_S, GL_OBJECT_PLANE, sPlane);
-    glTexGenfv(GL_T, GL_OBJECT_PLANE, tPlane);
-    glEnable(GL_TEXTURE_GEN_S);
-    glEnable(GL_TEXTURE_GEN_T);
+    // Explicit coordinates from Mesh::draw must not be overridden by texgen.
+    glDisable(GL_TEXTURE_GEN_S);
+    glDisable(GL_TEXTURE_GEN_T);
 }
 
 void TextureSet::unbind() const {

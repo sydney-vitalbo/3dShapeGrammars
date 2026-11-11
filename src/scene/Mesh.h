@@ -41,7 +41,8 @@ public:
      * Draw the mesh using the current OpenGL modelview/projection.
      * The caller is responsible for setting color/material and transforms before this
      */
-    void draw() const;
+    // Dimensions set the texture repeat count on each face (one tile per world unit).
+    void draw(float width = 1.0f, float height = 1.0f, float depth = 1.0f) const;
 
 private:
     //   vertices: each stored once
