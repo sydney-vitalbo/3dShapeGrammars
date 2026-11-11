@@ -101,6 +101,11 @@ private:
     //needed bc this stops the building from snapping its center to the cursor when you grab it off-center
     V3 grabOffset = V3(0, 0, 0);
 
+    //True when the grab happened but the ground ray missed, so grabOffset could
+    //not be measured yet. The first FL_DRAG that does hit the ground establishes
+    //the offset (keeping the grabbed spot under the cursor) before moving.
+    bool grabOffsetPending = false;
+
     // Cached unit meshes... will build each primitive once and reuse it
     // each instance will be scaled via the modelview matrix
     Mesh boxMesh;

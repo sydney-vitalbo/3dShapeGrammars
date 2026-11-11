@@ -404,9 +404,16 @@ V3 SceneController::snapToGrid(const V3& point) const {
             if (oldBounds.maxC[2] <= obstacle.minC[2]+1e-4f) addZ(back);
             if (oldBounds.minC[2] >= obstacle.maxC[2]-1e-4f) addZ(front);
             if (candidates.empty()) {
+                // The approach side is blocked (or ambiguous): consider every
+                // face so the building can slide out along whichever axis has
+                // room, instead of refusing to move
                 addX(left); addX(right); addZ(back); addZ(front);
             }
-            if (candidates.empty()) return rootPosition;
+            if (candidates.empty()) {
+                // Every face-aligned escape falls outside the grid-confinement interval Rather than giving up (which froze the drag even
+                // when space existed elsewhere), skip and let the final overlap check below keep the last valid placement
+                continue;
+            }
             const Candidate best = *std::min_element(candidates.begin(), candidates.end(),
                 [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
             if (best.xAxis) sx = best.value; else sz = best.value;

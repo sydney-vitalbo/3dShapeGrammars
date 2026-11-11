@@ -335,9 +335,14 @@ bool SceneView::pickComponent(int mouseX, int mouseY) {
         AABB rootBox = entry.second;
 
         // Level 1: skip the whole building unless the ray enters its box AND
-        // that entry could still be closer than the best hit found so far
+        // that entry could still be closer than the best hit found so far.
+        //
+        // Pad the cached root box by a small margin
+        constexpr float pad = 1e-3f;
+        V3 paddedMin = rootBox.minC - V3(pad, pad, pad);
+        V3 paddedMax = rootBox.maxC + V3(pad, pad, pad);
         float tRoot;
-        if (!picking::rayHitAABB(origin, dir, rootBox.minC, rootBox.maxC, tRoot))
+        if (!picking::rayHitAABB(origin, dir, paddedMin, paddedMax, tRoot))
             continue;
         // The entry distance to the (looser) root box is a lower bound on any
         // hit inside it; if even that is farther than bestT, this building loses.
@@ -384,14 +389,18 @@ int SceneView::handle(int event) {
             bool hitBuilding = pickComponent(Fl::event_x(), Fl::event_y());
 
             if (hitBuilding) {
-                //clicked ON the building -> begin MOVING it (not camera orbiting)
+                //clicked ON the building -> begin MOVING it (not camera orbiting).
                 V3 origin, dir, groundPt, position;
                 buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
                 if (picking::rayHitGround(origin, dir, groundPt) &&
                     controller.selectedRootPosition(position)) {
                     grabOffset = position - groundPt;
-                    movingBuilding = true;
+                    grabOffsetPending = false;
+                } else {
+                    grabOffset = V3(0, 0, 0);   // no reference point yet...
+                    grabOffsetPending = true;   // ...establish it on the first drag
                 }
+                movingBuilding = true;
                 dragging = false; // don't orbit while moving the building
             } else {
                 //clicked empty space ->  orbit the camera once the mouse moves (handled below in FL_DRAG).
@@ -423,6 +432,16 @@ int SceneView::handle(int event) {
             V3 origin, dir, groundPt;
             buildSelectionRay(Fl::event_x(), Fl::event_y(), origin, dir);
             if (picking::rayHitGround(origin, dir, groundPt)) {
+                //If the grab happened while the ground ray was missing, establish
+                //the offset now (first valid ground hit) instead of moving, so
+                //the building does not jump its center to the cursor.
+                if (grabOffsetPending) {
+                    V3 position;
+                    if (controller.selectedRootPosition(position))
+                        grabOffset = position - groundPt;
+                    grabOffsetPending = false;
+                    return 1; // consumed; next drag event performs the move
+                }
                 //New placement = ground point + the grab offset we stored, so the building keeps the same spot under the cursor.
                 //The controller snaps it to the grid and commits the move (which
                 //triggers our onChanged -> redraw).
@@ -455,6 +474,7 @@ int SceneView::handle(int event) {
         dragging = false;
         panning = false;
         movingBuilding = false; // stop moving the building when the button is let go
+        grabOffsetPending = false;
         return 1;
 
     case FL_MOUSEWHEEL: {
