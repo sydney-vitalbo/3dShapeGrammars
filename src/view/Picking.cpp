@@ -12,8 +12,9 @@
 namespace sg {
 namespace picking {
 
-// Cheap ray vs. axis-aligned box, via the "slab method"
-// Used as a test reject before the oriented-box test (rayHitBox)
+// Ray vs. axis-aligned box, via the "slab method".
+// Buildings are axis-aligned in world space, so this is the exact test used to
+// pick the nearest building; outT is the entry distance.
 bool rayHitAABB(const V3& origin, const V3& dir,
                 const V3& minC, const V3& maxC,
                 float& outT) {
@@ -21,8 +22,8 @@ bool rayHitAABB(const V3& origin, const V3& dir,
     V3 o = origin, d = dir;
     V3 lo = minC, hi = maxC;
 
-    // Same idea as rayHitBox, but the box is already in world axes: start with
-    // "the whole ray" and shrink the valid [tMin, tMax] window one axis at a time.
+    // Start with "the whole ray" and shrink the valid [tMin, tMax] window one
+    // axis at a time.
     float tMin = 0.0f;
     float tMax = std::numeric_limits<float>::max();
     for (int i = 0; i < 3; ++i) { // i = 0,1,2 -> X, Y, Z axis
@@ -43,50 +44,6 @@ bool rayHitAABB(const V3& origin, const V3& dir,
     }
     // Survived all three axes: the ray enters the box at distance tMin
     // (tMin is 0 when the ray's origin is already inside the box).
-    outT = tMin;
-    return true;
-}
-
-//Determine if the ray hits this box, via the "slab method"
-// Returns true on a hit and writes the entry distance to outT (used to pick the closest terminal)
-bool rayHitBox(const V3& origin, const V3& dir,
-               const V3& center, const V3& size, const M33& rotation,
-               float& outT) {
-    //V3/M33 math API has no const methods, so copy into mutable locals
-    V3 org = origin, direction = dir;
-    V3 c = center;
-    V3 s = size;
-    M33 rot = rotation;
-    M33 inv = rot.Transpose(); // world-orientation -> local-orientation (inverse)
-
-    // Move the ray into the box's local space: subtract the box center (so the
-    // box sits at the origin) and un-rotate it. Now the box is axis-aligned and
-    // spans [-half, +half] on each axis
-    V3 o = inv * (org - c);      // ray start,  in local space
-    V3 d = inv * direction;      // ray heading, in local space
-    V3 half = s * 0.5f;          // half the box size on each axis
-
-    //start with "the whole ray" and shrink the valid [tMin, tMax] window one axis at a time
-    float tMin = 0.0f;
-    float tMax = std::numeric_limits<float>::max();
-    for (int i = 0; i < 3; ++i) { // i = 0,1,2  ->  X, Y, Z axis
-        const float oi = o[i], di = d[i], h = half[i];
-        if (std::abs(di) < 1e-8f) {
-            //ray runs parallel to this pair of walls (it never crosses them)
-            //then it can only be inside if it already STARTS between them
-            if (oi < -h || oi > h) return false; // started outside -> definite miss
-        } else {
-            //distances at which the ray crosses this axis's two walls (-h and +h)
-            float t1 = (-h - oi) / di;
-            float t2 = ( h - oi) / di;
-            if (t1 > t2) std::swap(t1, t2); // make t1 the near wall, t2 the far wall
-            //tighten the overlap window to this slab's [t1, t2].
-            tMin = std::max(tMin, t1); // latest entry so far
-            tMax = std::min(tMax, t2); // earliest exit so far
-            if (tMin > tMax) return false; // slabs don't overlap -> the ray misses
-        }
-    }
-    //survived all three axes: the ray enters the box at distance tMin
     outT = tMin;
     return true;
 }
