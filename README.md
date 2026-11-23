@@ -91,7 +91,13 @@ Install CMake 3.24+ and Ninja (for example, with Homebrew):
 brew install cmake ninja
 ```
 
-Then, from the repository root:
+From the repository root, configure, build, and launch the Debug app:
+
+```sh
+sh ./run.cmd
+```
+
+To run the steps individually:
 
 ```sh
 cmake --preset macos-debug
@@ -129,8 +135,8 @@ within a graphical desktop session (an XWayland session also works). A headless
 terminal or WSL installation without a working GUI/OpenGL environment cannot
 display the application.
 
-Windows Debug and Release builds are verified. macOS and Linux
-presets are provided but have not been validated on those platforms by us.
+Windows Debug and Release builds and the macOS Debug build on Apple silicon
+have been verified. The Linux presets have not been validated.
 
 ## Repository development
 

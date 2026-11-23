@@ -64,7 +64,7 @@ private:
                             bool includeDisabled = false);
     void UpdateJoins();
     void GroupJoinedRoots(const std::vector<std::pair<int,std::vector<int>>>& previousUnits);
-    static void ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
+    static void ApplyJoinMask(ShapeNode& node, unsigned overlapMask,
                               const std::vector<SharedWallSpan>& spans,
                               V3 parentPose, M33 parentRotation, bool parentDisabled = false,
                               unsigned facadeFace = 0, bool inRoof = false);

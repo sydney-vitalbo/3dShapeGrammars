@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -28,17 +30,19 @@ AABB terminalBounds(const std::vector<ShapeNode>& terminals, int buildingId = -1
     return bounds;
 }
 
-// Structural root bounds are the boxes used by GrammarEngine joining. Facade
+// Structural bounds are the boxes used by GrammarEngine joining. Facade
 // projections are deliberately excluded so they may extend over a neighbour
 // without being treated as intersecting building volumes.
-AABB rootBoundsAt(const ShapeNode& root, V3 position) {
+AABB structuralBoundsAt(V3 size, V3 position) {
     AABB bounds;
-    V3 size = root.size;
-    M33 rotation = root.rotation;
-    for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
-        bounds.AddPoint(position + rotation *
-            V3(x*size[0]/2, y*size[1]/2, z*size[2]/2));
+    const V3 half = size * 0.5f;
+    bounds.AddPoint(position-half);
+    bounds.AddPoint(position+half);
     return bounds;
+}
+
+AABB rootBoundsAt(const ShapeNode& root, V3 position) {
+    return structuralBoundsAt(root.size, position);
 }
 
 bool volumeOverlap(AABB a, AABB b) {
@@ -47,6 +51,20 @@ bool volumeOverlap(AABB a, AABB b) {
         if (std::min(a.maxC[axis], b.maxC[axis]) -
             std::max(a.minC[axis], b.minC[axis]) <= epsilon) return false;
     return true;
+}
+
+bool contains(AABB outer, AABB inner) {
+    constexpr float epsilon = 1e-4f;
+    for (int axis = 0; axis < 3; ++axis)
+        if (inner.minC[axis] < outer.minC[axis]-epsilon ||
+            inner.maxC[axis] > outer.maxC[axis]+epsilon) return false;
+    return true;
+}
+
+[[noreturn]] void failContainment(int outerId, int innerId) {
+    std::cerr << "Fatal building containment: building " << outerId
+              << " contains building " << innerId << "." << std::endl;
+    std::exit(EXIT_FAILURE);
 }
 
 // Reject a building whose footprint reaches past the grid, with a small epsilon
@@ -65,7 +83,7 @@ const ShapeNode* resolvePath(const ShapeNode& root, const std::vector<int>& path
                              V3& outWorldPos, M33& outWorldRot) {
     const ShapeNode* node = &root;
     V3 worldPos = root.position;          // root position is already world space
-    M33 worldRot = root.rotation;
+    M33 worldRot(1.0f);
     for (int index : path) {
         if (index < 0 || index >= static_cast<int>(node->children.size())) return nullptr;
         const ShapeNode& child = node->children[index];
@@ -153,12 +171,23 @@ std::size_t SceneController::addBuilding(bool apartment, const building_rules::P
 std::size_t SceneController::setBuilding(bool apartment, const building_rules::Parameters& parameters) {
     const ShapeNode* current = engine.FindRoot(selectedRootId);
     if (!current) throw std::invalid_argument("Select a building before applying changes.");
+    const auto requireNoOverlap = [&](AABB candidateBounds) {
+        for (const ShapeNode& other : engine.roots) {
+            if (other.buildingId == selectedRootId) continue;
+            const AABB otherBounds = rootBoundsAt(other, other.position);
+            if (contains(candidateBounds, otherBounds))
+                failContainment(selectedRootId, other.buildingId);
+            if (contains(otherBounds, candidateBounds))
+                failContainment(other.buildingId, selectedRootId);
+            if (volumeOverlap(candidateBounds, otherBounds))
+                throw std::invalid_argument("These changes would overlap another building.");
+        }
+    };
     if (current->symbol==Symbol::JoinedUnit) {
         ShapeNode unit;
         unit.symbol=Symbol::JoinedUnit;
         unit.buildingId=current->buildingId;
         unit.position=current->position;
-        unit.rotation=current->rotation;
         unit.size=current->size;
         unit.lockWidth=current->lockWidth;
         unit.lockDepth=current->lockDepth;
@@ -172,12 +201,19 @@ std::size_t SceneController::setBuilding(bool apartment, const building_rules::P
             ShapeNode replacement=building_rules::buildingRoot(p,member.symbol==Symbol::Apartment);
             replacement.buildingId=member.buildingId;
             replacement.position=V3(oldPosition[0],oldPosition[1]-oldSize[1]/2+replacement.size[1]/2,oldPosition[2]);
-            replacement.rotation=member.rotation;
             engine.GenerateTree(&replacement);
             unit.children.push_back(std::move(replacement));
         }
         const auto pieces=engine.TerminalsForRoot(unit);
         requireInsideGrid(terminalBounds(pieces),grid.halfExtent);
+        AABB candidateBounds;
+        for (const ShapeNode& member : unit.children) {
+            const AABB memberBounds = structuralBoundsAt(
+                member.size, unit.position+member.position);
+            candidateBounds.AddPoint(memberBounds.minC);
+            candidateBounds.AddPoint(memberBounds.maxC);
+        }
+        requireNoOverlap(candidateBounds);
         const auto count=pieces.size();
         engine.ReplaceRoot(selectedRootId,std::move(unit));
         selectedRootId=engine.SceneRootId(anchor);
@@ -186,17 +222,17 @@ std::size_t SceneController::setBuilding(bool apartment, const building_rules::P
         notifyChanged();
         return count;
     }
-    // Build a candidate with the same placement/orientation. Commit only after
+    // Build a candidate with the same placement. Commit only after
     // validation, preserving every other root and its generated geometry.
     ShapeNode root = apartment ? building_rules::makeApartment(parameters)
                                : building_rules::makeOffice(parameters);
     V3 previousPosition = current->position, previousSize = current->size;
     root.position = V3(previousPosition[0], previousPosition[1]-previousSize[1]/2+root.size[1]/2,
                        previousPosition[2]);
-    root.rotation = current->rotation;
     engine.GenerateTree(&root);
     const auto pieces = engine.TerminalsForRoot(root);
     requireInsideGrid(terminalBounds(pieces), grid.halfExtent);
+    requireNoOverlap(rootBoundsAt(root, root.position));
     engine.ReplaceRoot(selectedRootId, std::move(root));
     selectedRootId=engine.SceneRootId(selectedRootId);
     // The tree was regenerated, so tree panel reselects nothing after refresh()
@@ -300,7 +336,7 @@ bool SceneController::selectedBuildingBounds(AABB& outBounds) const {
         return true;
     }
     // Full geometry keeps the selected outline stable even when a join hides
-    // a whole side (or another building completely contains this root)
+    // a whole side
     if (engine.RootBounds(selectedRootId, outBounds)) return true;
     // Fallback (cache miss, e.g. right after a structural change): measure now.
     outBounds = terminalBounds(engine.TerminalsForRoot(*root));

@@ -13,14 +13,14 @@ enum class Material {
     None, Wood, Glass, Stone, WhiteMarble, RedMarble,
 };
 
-// Root masks use world AABB directions. Component tags use building-local axes.
+// Buildings are axis-aligned, so root masks and component tags use the same axes.
 enum class BuildingFace : unsigned {
     None = 0, Right = 1, Left = 2, Top = 4, Bottom = 8, Front = 16, Back = 32
 };
 constexpr unsigned allBuildingFaces = 63;
 
 struct SharedWallSpan {
-    unsigned face; // World face bit; interval runs along X for front/back, Z for sides.
+    unsigned face; // Face bit; interval runs along X for front/back, Z for sides.
     float min, max;
     float minY, maxY; // World-space vertical extent of the covered rectangle.
     float roofMinY; // Neighbour's roof starts here; below it are floor slabs.
@@ -28,10 +28,6 @@ struct SharedWallSpan {
 
 struct RootJoinState {
     AABB bounds; // Structural root box in world space, excluding decorations.
-    unsigned overlapMask = 0;
-    std::vector<SharedWallSpan> wallSpans; // Neighbours' covered wall rectangles.
-    M33 lastRotation = M33(1.0f);
-    bool visibilityDirty = true;
 };
 
 // Context inherited by a building rule's children for deferred expansion.
@@ -41,7 +37,7 @@ struct BuildingContext {
     bool apartment = false;
     bool groundFloor = false;
     bool balconies = true;
-    bool streetFacing = true; // Design choice; orientation is stored in the pose.
+    bool streetFacing = true; // Design choice; rear-facade orientation lives in its child transform.
 };
 
 struct ShapeNode {

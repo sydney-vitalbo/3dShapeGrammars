@@ -1,6 +1,7 @@
 #include "GrammarEngine.h"
 
 #include <iostream>
+#include <cstdlib>
 #include <stdexcept>
 #include <utility>
 #include <algorithm>
@@ -11,10 +12,11 @@ constexpr float joinEpsilon = 1e-4f;
 
 AABB rootBounds(const ShapeNode& root) {
     AABB bounds;
-    V3 size = root.size, position = root.position;
-    M33 rotation = root.rotation;
-    for (int x : {-1, 1}) for (int y : {-1, 1}) for (int z : {-1, 1})
-        bounds.AddPoint(position + rotation * V3(x*size[0]/2, y*size[1]/2, z*size[2]/2));
+    V3 half = root.size;
+    half = half * 0.5f;
+    V3 position = root.position;
+    bounds.AddPoint(position-half);
+    bounds.AddPoint(position+half);
     return bounds;
 }
 
@@ -33,6 +35,12 @@ bool contains(AABB outer, AABB inner) {
         if (inner.minC[axis] < outer.minC[axis]-joinEpsilon ||
             inner.maxC[axis] > outer.maxC[axis]+joinEpsilon) return false;
     return true;
+}
+
+[[noreturn]] void failContainment(int outerId, int innerId) {
+    std::cerr << "Fatal building containment: building " << outerId
+              << " contains building " << innerId << "." << std::endl;
+    std::exit(EXIT_FAILURE);
 }
 
 unsigned coveredFaces(AABB a, AABB b) {
@@ -58,25 +66,6 @@ unsigned coveredFaces(AABB a, AABB b) {
              std::fabs(b.maxC[axis]-a.minC[axis]) <= joinEpsilon)) mask |= negative[axis];
     }
     return mask;
-}
-
-unsigned worldFace(BuildingFace face, M33 rotation) {
-    V3 normal(0, 0, 0);
-    switch (face) {
-    case BuildingFace::Right:  normal = V3(1,0,0); break;
-    case BuildingFace::Left:   normal = V3(-1,0,0); break;
-    case BuildingFace::Top:    normal = V3(0,1,0); break;
-    case BuildingFace::Bottom: normal = V3(0,-1,0); break;
-    case BuildingFace::Front:  normal = V3(0,0,1); break;
-    case BuildingFace::Back:   normal = V3(0,0,-1); break;
-    default: return 0;
-    }
-    normal = rotation * normal;
-    int axis = 0;
-    for (int i = 1; i < 3; ++i)
-        if (std::fabs(normal[i]) > std::fabs(normal[axis])) axis = i;
-    const unsigned positive[] = {1, 4, 16}, negative[] = {2, 8, 32};
-    return normal[axis] >= 0 ? positive[axis] : negative[axis];
 }
 
 // Include the bay scope and its generated details (including projecting balconies).
@@ -174,8 +163,7 @@ bool GrammarEngine::DetachBuilding(int buildingId) {
         for (auto it=unit.children.begin(); it!=unit.children.end(); ++it) {
             if (it->buildingId != buildingId) continue;
             ShapeNode detached=std::move(*it);
-            detached.position=unit.position + unit.rotation*detached.position;
-            detached.rotation=unit.rotation*detached.rotation;
+            detached.position=unit.position + detached.position;
             for (const auto& member : unit.children) {
                 if (member.buildingId == buildingId) continue;
                 if (std::find(detached.detachedFromBuildings.begin(),
@@ -252,7 +240,7 @@ void GrammarEngine::MoveRoot(int buildingId, V3 position) {
     }
     for (auto& unit : roots) if (unit.symbol == Symbol::JoinedUnit) {
         for (auto& member : unit.children) if (member.buildingId==buildingId) {
-            // Unit orientation is identity; members retain their own rotations.
+            // Joined units and their building members are axis-aligned.
             member.position=position-unit.position;
             RebuildTerminals();
             return;
@@ -265,7 +253,7 @@ std::vector<ShapeNode> GrammarEngine::TerminalsForRoot(const ShapeNode& root) co
     std::vector<ShapeNode> result;
     for(const auto& unit:roots) if(unit.symbol==Symbol::JoinedUnit) {
         for(const auto& member:unit.children) if(&member==&root) {
-            CollectInto(&root,unit.position,unit.rotation,root.buildingId,result,true);
+            CollectInto(&root,unit.position,M33(1.0f),root.buildingId,result,true);
             return result;
         }
     }
@@ -282,8 +270,7 @@ void GrammarEngine::RebuildTerminals() {
         std::vector<int> ids;
         for (auto& member : root.children) {
             ids.push_back(member.buildingId);
-            member.position=root.position+root.rotation*member.position;
-            member.rotation=root.rotation*member.rotation;
+            member.position=root.position+member.position;
             buildings.push_back(std::move(member));
         }
         previousUnits.push_back({root.buildingId,std::move(ids)});
@@ -339,8 +326,8 @@ void GrammarEngine::GroupJoinedRoots(const std::vector<std::pair<int,std::vector
         neighbours[i].push_back(j); neighbours[j].push_back(i);
         for(auto index : {i,j}) {
             const unsigned mask=index==i?ab:ba;
-            const unsigned sides=worldFace(BuildingFace::Left,roots[index].rotation)|worldFace(BuildingFace::Right,roots[index].rotation);
-            const unsigned fronts=worldFace(BuildingFace::Front,roots[index].rotation)|worldFace(BuildingFace::Back,roots[index].rotation);
+            constexpr unsigned sides=static_cast<unsigned>(BuildingFace::Left)|static_cast<unsigned>(BuildingFace::Right);
+            constexpr unsigned fronts=static_cast<unsigned>(BuildingFace::Front)|static_cast<unsigned>(BuildingFace::Back);
             widthLock[index]=widthLock[index] || (mask&sides)!=0;
             depthLock[index]=depthLock[index] || (mask&fronts)!=0;
         }
@@ -403,10 +390,10 @@ void GrammarEngine::UpdateJoins() {
     for (size_t i = 0; i < roots.size(); ++i) {
         for (size_t j = i+1; j < roots.size(); ++j) {
             AABB a = roots[i].rootJoin->bounds, b = roots[j].rootJoin->bounds;
-            // A completely contained root contributes no exterior. Identical
-            // boxes keep the older root visible instead of hiding both copies.
-            if (contains(a,b)) { masks[j] |= allBuildingFaces; continue; }
-            if (contains(b,a)) { masks[i] |= allBuildingFaces; continue; }
+            if (contains(a,b))
+                failContainment(roots[i].buildingId, roots[j].buildingId);
+            if (contains(b,a))
+                failContainment(roots[j].buildingId, roots[i].buildingId);
             const unsigned ab = coveredFaces(a,b), ba = coveredFaces(b,a);
             masks[i] |= ab;
             masks[j] |= ba;
@@ -422,26 +409,19 @@ void GrammarEngine::UpdateJoins() {
         }
     }
     for (size_t i = 0; i < roots.size(); ++i) {
-        RootJoinState& state = *roots[i].rootJoin;
-        // The covered interval can change even while the face mask stays the same.
-        state.wallSpans = std::move(spans[i]);
-        ApplyJoinMask(roots[i], masks[i], roots[i].rotation, state.wallSpans,
-                      V3(0,0,0), M33(1.0f));
-        state.lastRotation = roots[i].rotation;
-        state.visibilityDirty = false;
-        state.overlapMask = masks[i];
+        ApplyJoinMask(roots[i], masks[i], spans[i], V3(0,0,0), M33(1.0f));
     }
 }
 
-void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootRotation,
+void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned overlapMask,
                                    const std::vector<SharedWallSpan>& spans,
                                    V3 parentPose, M33 parentRotation, bool parentDisabled,
                                    unsigned facadeFace, bool inRoof) {
     inRoof = inRoof || node.symbol == Symbol::Roof;
     const V3 worldPosition = parentPose + parentRotation * node.position;
     M33 worldRotation = parentRotation * node.rotation;
-    const unsigned face = worldFace(node.exteriorFace, rootRotation);
-    const bool faceCovered = (worldMask & face) != 0;
+    const unsigned face = static_cast<unsigned>(node.exteriorFace);
+    const bool faceCovered = (overlapMask & face) != 0;
     // Restore the original slab first, so moves never accumulate subdivisions.
     if (node.joinSplit) {
         node.children.clear();
@@ -450,7 +430,7 @@ void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootR
     }
     const bool frontBack = node.exteriorFace == BuildingFace::Front || node.exteriorFace == BuildingFace::Back;
     const bool side = node.exteriorFace == BuildingFace::Left || node.exteriorFace == BuildingFace::Right;
-    if (!parentDisabled && worldMask != allBuildingFaces && faceCovered &&
+    if (!parentDisabled && overlapMask != allBuildingFaces && faceCovered &&
         (frontBack || side) && node.symbol == Symbol::Slab && node.isTerminal) {
         const int axis = frontBack ? 0 : 2;
         const float length = node.size[axis];
@@ -533,16 +513,16 @@ void GrammarEngine::ApplyJoinMask(ShapeNode& node, unsigned worldMask, M33 rootR
     const bool wallRegion = node.symbol == Symbol::WallRegion;
     if (wallRegion) facadeFace = face;
     bool componentCovered = false;
-    if (facadeFace && (worldMask & facadeFace) &&
+    if (facadeFace && (overlapMask & facadeFace) &&
         (node.symbol == Symbol::Bay || node.symbol == Symbol::Entrance)) {
         AABB bounds;
         growComponentBounds(node,worldPosition,worldRotation,bounds);
         componentCovered = overlapsRemovedWall(bounds,facadeFace,spans);
     }
-    node.disabled = parentDisabled || worldMask == allBuildingFaces || componentCovered ||
+    node.disabled = parentDisabled || overlapMask == allBuildingFaces || componentCovered ||
         (faceCovered && !node.joinSplit && !wallRegion);
     if (!node.joinSplit) for (ShapeNode& child : node.children)
-        ApplyJoinMask(child,worldMask,rootRotation,spans,worldPosition,worldRotation,node.disabled,facadeFace,inRoof);
+        ApplyJoinMask(child,overlapMask,spans,worldPosition,worldRotation,node.disabled,facadeFace,inRoof);
 }
 
 // generate grammar tree for a given preset
@@ -554,8 +534,6 @@ void GrammarEngine::GenerateTree(ShapeNode* node) {
     if (node->isTerminal) {
         return;
     }
-    if (node->rootJoin) node->rootJoin->visibilityDirty = true;
-
     // generate grammar subtree for this node
     building_rules::Expand(node);
 
